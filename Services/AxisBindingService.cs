@@ -1,0 +1,529 @@
+using SharpDX.DirectInput;
+using BmsLightBridge.Models;
+
+namespace BmsLightBridge.Services
+{
+    /// <summary>
+    /// Represents one discovered joystick device (for the UI combo-box).
+    /// </summary>
+    public class JoystickDeviceInfo
+    {
+        public string InstanceGuid { get; init; } = "";
+        public string Name         { get; init; } = "";
+    }
+
+    /// <summary>
+    /// Polls joystick axes and buttons via SharpDX.DirectInput and fires <see cref="BrightnessChanged"/>
+    /// whenever a bound brightness channel value changes.
+    ///
+    /// Supports two binding modes per channel:
+    ///   - Axis binding: maps a joystick axis linearly to 0–255.
+    ///   - Button binding: two buttons step brightness up/down by a configurable percentage.
+    ///
+    /// Thread safety: Start/Stop/UpdateBindings are called from the UI thread.
+    /// The poll loop runs on a background thread; <see cref="BrightnessChanged"/> is
+    /// raised from that background thread — callers must marshal to the UI thread if needed.
+    /// </summary>
+    public class AxisBindingService : IDisposable
+    {
+        // ── State ─────────────────────────────────────────────────────────
+
+        private DirectInput?  _directInput;
+        private bool          _dinputAvailable;
+        private bool          _disposed;
+
+        // Active bindings snapshots — replaced atomically via lock
+        private List<(WinWingBrightnessChannel channel, AxisBinding binding)>   _activeAxisBindings   = new();
+        private List<(WinWingBrightnessChannel channel, ButtonBinding binding)> _activeButtonBindings = new();
+        private readonly object _bindLock = new();
+
+        // Open joystick handles: instanceGuid → Joystick
+        private readonly Dictionary<string, Joystick> _openDevices = new();
+        private readonly object _devLock = new();
+
+        private System.Threading.Timer? _pollTimer;
+
+        // Last sent value per (productId, lightIndex) — avoids flooding HID with identical packets
+        private readonly Dictionary<(int pid, int idx), byte> _lastSent = new();
+
+        // Button state tracking: previous pressed state and last press timestamp per (guid, btn)
+        private readonly Dictionary<(string guid, int btn), bool>     _lastButtonState = new();
+        private readonly Dictionary<(string guid, int btn), DateTime>  _lastPressTime   = new();
+
+        // Velocity step thresholds and curve
+        // Interval < FastMs  → MaxStep (25%), > SlowMs → MinStep (2%)
+        // Curve: quadratic falloff so moderate speed feels natural
+        private const double VelocityFastMs = 200.0;
+        private const double VelocitySlowMs = 1000.0;
+        private const double VelocityMinStep = 2.0  * 255.0 / 100.0;   // ~5 units
+        private const double VelocityMaxStep = 25.0 * 255.0 / 100.0;   // ~64 units
+
+        /// <summary>
+        /// Raised from the poll thread when a brightness channel value changes.
+        /// Arguments: (productId, lightIndex, brightness 0-255).
+        /// </summary>
+        public event Action<int, int, byte>? BrightnessChanged;
+
+        // ── Constructor ───────────────────────────────────────────────────
+
+        public AxisBindingService()
+        {
+            try
+            {
+                _directInput     = new DirectInput();
+                _dinputAvailable = true;
+            }
+            catch
+            {
+                _dinputAvailable = false;
+            }
+        }
+
+        // ── Public API ────────────────────────────────────────────────────
+
+        /// <summary>Returns all currently attached joystick / gamepad devices.</summary>
+        public List<JoystickDeviceInfo> EnumerateJoysticks()
+        {
+            var result = new List<JoystickDeviceInfo>();
+            if (!_dinputAvailable || _directInput == null) return result;
+
+            try
+            {
+                var devices = _directInput.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly);
+                foreach (var d in devices)
+                    result.Add(new JoystickDeviceInfo
+                    {
+                        InstanceGuid = d.InstanceGuid.ToString(),
+                        Name         = d.InstanceName.TrimEnd('\0')
+                    });
+            }
+            catch { /* DI not available */ }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Replaces the active binding set and starts/stops the poll timer as needed.
+        /// Call whenever bindings change (config load, user edit, device refresh).
+        /// </summary>
+        public void UpdateBindings(IEnumerable<WinWingBrightnessChannel> allChannels)
+        {
+            var channels = allChannels.ToList();
+
+            var axisBindings = channels
+                .Where(c => c.AxisBinding != null &&
+                            !string.IsNullOrEmpty(c.AxisBinding.DeviceInstanceGuid))
+                .Select(c => (c, c.AxisBinding!))
+                .ToList();
+
+            var buttonBindings = channels
+                .Where(c => c.ButtonBinding != null &&
+                            !string.IsNullOrEmpty(c.ButtonBinding.DeviceInstanceGuid))
+                .Select(c => (c, c.ButtonBinding!))
+                .ToList();
+
+            lock (_bindLock)
+            {
+                _activeAxisBindings   = axisBindings;
+                _activeButtonBindings = buttonBindings;
+            }
+
+            var neededGuids = axisBindings  .Select(b => b.Item2.DeviceInstanceGuid)
+                .Concat(buttonBindings.Select(b => b.Item2.DeviceInstanceGuid))
+                .ToHashSet();
+            EnsureDevicesOpen(neededGuids);
+
+            bool hasBindings = axisBindings.Count > 0 || buttonBindings.Count > 0;
+            if (hasBindings)
+                _pollTimer?.Change(50, 50);
+            else
+                _pollTimer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+        }
+
+        /// <summary>Starts the background poll timer (call once after construction).</summary>
+        public void Start()
+        {
+            _pollTimer = new System.Threading.Timer(
+                _ => Poll(),
+                null,
+                System.Threading.Timeout.Infinite,
+                System.Threading.Timeout.Infinite);
+        }
+
+        // ── Internal polling ──────────────────────────────────────────────
+
+        private void Poll()
+        {
+            List<(WinWingBrightnessChannel ch, AxisBinding ab)>   axisSnapshot;
+            List<(WinWingBrightnessChannel ch, ButtonBinding bb)> btnSnapshot;
+            lock (_bindLock)
+            {
+                axisSnapshot = new List<(WinWingBrightnessChannel, AxisBinding)>(_activeAxisBindings);
+                btnSnapshot  = new List<(WinWingBrightnessChannel, ButtonBinding)>(_activeButtonBindings);
+            }
+
+            if (axisSnapshot.Count == 0 && btnSnapshot.Count == 0) return;
+
+            // Take a single snapshot of open device handles for the whole poll cycle.
+            Dictionary<string, Joystick> devSnapshot;
+            lock (_devLock)
+                devSnapshot = new Dictionary<string, Joystick>(_openDevices);
+
+            // ── Axis bindings ─────────────────────────────────────────────
+            foreach (var (ch, ab) in axisSnapshot)
+            {
+                devSnapshot.TryGetValue(ab.DeviceInstanceGuid, out var joystick);
+                if (joystick == null) continue;
+
+                JoystickState state;
+                try
+                {
+                    joystick.Poll();
+                    state = joystick.GetCurrentState();
+                }
+                catch
+                {
+                    RemoveDevice(ab.DeviceInstanceGuid, joystick, devSnapshot);
+                    continue;
+                }
+
+                int raw    = GetAxisValue(state, ab.Axis);
+                int mapped = Math.Clamp(raw, 0, 65535) * 255 / 65535;
+                if (ab.Invert) mapped = 255 - mapped;
+                FireIfChanged(ch, (byte)mapped);
+            }
+
+            // ── Button bindings ───────────────────────────────────────────
+            foreach (var (ch, bb) in btnSnapshot)
+            {
+                devSnapshot.TryGetValue(bb.DeviceInstanceGuid, out var joystick);
+                if (joystick == null) continue;
+
+                JoystickState state;
+                try
+                {
+                    joystick.Poll();
+                    state = joystick.GetCurrentState();
+                }
+                catch
+                {
+                    RemoveDevice(bb.DeviceInstanceGuid, joystick, devSnapshot);
+                    continue;
+                }
+
+                bool[] buttons = state.Buttons;
+                bool upNow   = bb.ButtonUp   < buttons.Length && buttons[bb.ButtonUp];
+                bool downNow = bb.ButtonDown < buttons.Length && buttons[bb.ButtonDown];
+
+                var keyUp   = (bb.DeviceInstanceGuid, bb.ButtonUp);
+                var keyDown = (bb.DeviceInstanceGuid, bb.ButtonDown);
+                bool upPrev   = _lastButtonState.GetValueOrDefault(keyUp,   false);
+                bool downPrev = _lastButtonState.GetValueOrDefault(keyDown, false);
+
+                _lastButtonState[keyUp]   = upNow;
+                _lastButtonState[keyDown] = downNow;
+
+                // Fire on leading edge (press) only — not while held.
+                bool stepUp   = upNow   && !upPrev;
+                bool stepDown = downNow && !downPrev;
+
+                if (!stepUp && !stepDown) continue;
+
+                // Velocity: measure time since last press on whichever button fired.
+                var activeKey = stepUp ? keyUp : keyDown;
+                var now       = DateTime.UtcNow;
+                double intervalMs = _lastPressTime.TryGetValue(activeKey, out var lastPress)
+                    ? (now - lastPress).TotalMilliseconds
+                    : VelocitySlowMs;   // first press → treat as slow
+                _lastPressTime[activeKey] = now;
+
+                // Quadratic falloff: t=0 → fast (MaxStep), t=1 → slow (MinStep)
+                // t grows quadratically so moderate speed already gives a noticeably smaller step
+                double t    = Math.Clamp((intervalMs - VelocityFastMs) / (VelocitySlowMs - VelocityFastMs), 0.0, 1.0);
+                int step    = (int)Math.Round(VelocityMinStep + (1.0 - t * t) * (VelocityMaxStep - VelocityMinStep));
+
+                int current = _lastSent.TryGetValue((ch.ProductId, ch.LightIndex), out byte prev)
+                              ? prev : ch.FixedBrightness;
+
+                int next = stepUp
+                    ? Math.Min(current + step, 255)
+                    : Math.Max(current - step, 0);
+
+                FireIfChanged(ch, (byte)next);
+            }
+        }
+
+        private void FireIfChanged(WinWingBrightnessChannel ch, byte brightness)
+        {
+            var key = (ch.ProductId, ch.LightIndex);
+            if (_lastSent.TryGetValue(key, out byte prev) && prev == brightness) return;
+            _lastSent[key]         = brightness;
+            ch.FixedBrightness     = brightness;   // keep model in sync for button mode
+            BrightnessChanged?.Invoke(ch.ProductId, ch.LightIndex, brightness);
+        }
+
+        private void RemoveDevice(string guid, Joystick joystick,
+            Dictionary<string, Joystick> devSnapshot)
+        {
+            lock (_devLock)
+            {
+                _openDevices.Remove(guid);
+                try { joystick.Dispose(); } catch { }
+            }
+            devSnapshot.Remove(guid);
+        }
+
+        private static int GetAxisValue(JoystickState state, JoystickAxis axis) => axis switch
+        {
+            JoystickAxis.X         => state.X,
+            JoystickAxis.Y         => state.Y,
+            JoystickAxis.Z         => state.Z,
+            JoystickAxis.RotationX => state.RotationX,
+            JoystickAxis.RotationY => state.RotationY,
+            JoystickAxis.RotationZ => state.RotationZ,
+            JoystickAxis.Slider0   => state.Sliders.Length > 0 ? state.Sliders[0] : 0,
+            JoystickAxis.Slider1   => state.Sliders.Length > 1 ? state.Sliders[1] : 0,
+            _                      => 0
+        };
+
+        // ── Axis / button detection ───────────────────────────────────────
+
+        // How many poll ticks we observe before accepting a button as "stable off" in the baseline.
+        private const int DetectBaselineSamples = 8;
+        private const int DetectPollMs          = 40;
+
+        /// <summary>
+        /// Listens for the next clean button press on the given device and calls
+        /// <paramref name="onDetected"/> with the detected button index (0-based),
+        /// or <paramref name="onTimeout"/> after <paramref name="timeoutMs"/> ms.
+        ///
+        /// "Clean" means: the button was never seen as pressed during the baseline
+        /// sampling window (so permanently-on axes/detents/HAT directions are ignored),
+        /// and then transitions from off → on.
+        ///
+        /// Runs on a background thread; callers must marshal to the UI thread.
+        /// </summary>
+        public void DetectButton(string deviceInstanceGuid, int timeoutMs,
+            Action<int> onDetected, Action onTimeout)
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                Joystick? joystick = null;
+                bool ownDevice     = false;
+
+                lock (_devLock)
+                    _openDevices.TryGetValue(deviceInstanceGuid, out joystick);
+
+                if (joystick == null && _dinputAvailable && _directInput != null)
+                {
+                    try
+                    {
+                        var guid = new Guid(deviceInstanceGuid);
+                        joystick = new Joystick(_directInput, guid);
+                        joystick.SetCooperativeLevel(
+                            IntPtr.Zero,
+                            CooperativeLevel.Background | CooperativeLevel.NonExclusive);
+                        joystick.Acquire();
+                        ownDevice = true;
+                    }
+                    catch { onTimeout(); return; }
+                }
+
+                if (joystick == null) { onTimeout(); return; }
+
+                try
+                {
+                    // ── Phase 1: build a stable baseline ─────────────────────────
+                    // Poll several times. Any button that is TRUE in ANY sample is
+                    // excluded — this catches permanently-on buttons, HAT positions,
+                    // and anything that flickers at rest.
+                    joystick.Poll();
+                    int buttonCount = joystick.GetCurrentState().Buttons.Length;
+                    var everHigh = new bool[buttonCount];
+
+                    for (int s = 0; s < DetectBaselineSamples; s++)
+                    {
+                        System.Threading.Thread.Sleep(DetectPollMs);
+                        joystick.Poll();
+                        bool[] sample = joystick.GetCurrentState().Buttons;
+                        for (int i = 0; i < buttonCount; i++)
+                            if (sample[i]) everHigh[i] = true;
+                    }
+
+                    // ── Phase 2: watch for a fresh leading-edge press ─────────────
+                    bool[] lastSeen = new bool[buttonCount]; // all false (known stable-off)
+
+                    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        System.Threading.Thread.Sleep(DetectPollMs);
+                        joystick.Poll();
+                        bool[] current = joystick.GetCurrentState().Buttons;
+
+                        for (int i = 0; i < buttonCount; i++)
+                        {
+                            if (everHigh[i]) continue;              // excluded — unstable at rest
+                            if (!lastSeen[i] && current[i])         // leading edge
+                            {
+                                onDetected(i);
+                                return;
+                            }
+                            lastSeen[i] = current[i];
+                        }
+                    }
+                    onTimeout();
+                }
+                catch { onTimeout(); }
+                finally
+                {
+                    if (ownDevice)
+                        try { joystick.Dispose(); } catch { }
+                }
+            });
+        }
+
+        // ── Device management ─────────────────────────────────────────────
+
+        /// <summary>
+        /// Listens for the first axis that moves beyond <paramref name="thresholdDelta"/> from its
+        /// resting position and calls <paramref name="onDetected"/> with the detected
+        /// <see cref="JoystickAxis"/> value, or <paramref name="onTimeout"/> after
+        /// <paramref name="timeoutMs"/> ms.
+        /// Runs on a background thread; callers must marshal to the UI thread.
+        /// </summary>
+        public void DetectAxis(string deviceInstanceGuid, int timeoutMs,
+            Action<JoystickAxis> onDetected, Action onTimeout,
+            int thresholdDelta = 3000)
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                Joystick? joystick = null;
+                bool ownDevice     = false;
+
+                lock (_devLock)
+                    _openDevices.TryGetValue(deviceInstanceGuid, out joystick);
+
+                if (joystick == null && _dinputAvailable && _directInput != null)
+                {
+                    try
+                    {
+                        var guid = new Guid(deviceInstanceGuid);
+                        joystick = new Joystick(_directInput, guid);
+                        joystick.SetCooperativeLevel(
+                            IntPtr.Zero,
+                            CooperativeLevel.Background | CooperativeLevel.NonExclusive);
+                        joystick.Acquire();
+                        ownDevice = true;
+                    }
+                    catch { onTimeout(); return; }
+                }
+
+                if (joystick == null) { onTimeout(); return; }
+
+                try
+                {
+                    // Capture resting position for each axis.
+                    joystick.Poll();
+                    var baseline = joystick.GetCurrentState();
+                    var rest = new Dictionary<JoystickAxis, int>
+                    {
+                        [JoystickAxis.X]         = baseline.X,
+                        [JoystickAxis.Y]         = baseline.Y,
+                        [JoystickAxis.Z]         = baseline.Z,
+                        [JoystickAxis.RotationX] = baseline.RotationX,
+                        [JoystickAxis.RotationY] = baseline.RotationY,
+                        [JoystickAxis.RotationZ] = baseline.RotationZ,
+                        [JoystickAxis.Slider0]   = baseline.Sliders.Length > 0 ? baseline.Sliders[0] : 0,
+                        [JoystickAxis.Slider1]   = baseline.Sliders.Length > 1 ? baseline.Sliders[1] : 0,
+                    };
+
+                    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        System.Threading.Thread.Sleep(DetectPollMs);
+                        joystick.Poll();
+                        var state = joystick.GetCurrentState();
+
+                        foreach (var axis in rest.Keys)
+                        {
+                            int current = GetAxisValue(state, axis);
+                            if (Math.Abs(current - rest[axis]) >= thresholdDelta)
+                            {
+                                onDetected(axis);
+                                return;
+                            }
+                        }
+                    }
+                    onTimeout();
+                }
+                catch { onTimeout(); }
+                finally
+                {
+                    if (ownDevice)
+                        try { joystick.Dispose(); } catch { }
+                }
+            });
+        }
+
+
+        private void EnsureDevicesOpen(HashSet<string> neededGuids)
+        {
+            if (!_dinputAvailable || _directInput == null) return;
+
+            lock (_devLock)
+            {
+                // Close devices no longer needed
+                var toClose = _openDevices.Keys.Where(g => !neededGuids.Contains(g)).ToList();
+                foreach (var g in toClose)
+                {
+                    try { _openDevices[g].Dispose(); } catch { }
+                    _openDevices.Remove(g);
+                }
+
+                // Open devices not yet open
+                foreach (var guidStr in neededGuids)
+                {
+                    if (_openDevices.ContainsKey(guidStr)) continue;
+
+                    try
+                    {
+                        var guid     = new Guid(guidStr);
+                        var joystick = new Joystick(_directInput, guid);
+
+                        // Background non-exclusive: no window handle needed
+                        joystick.SetCooperativeLevel(
+                            IntPtr.Zero,
+                            CooperativeLevel.Background | CooperativeLevel.NonExclusive);
+
+                        joystick.Acquire();
+                        _openDevices[guidStr] = joystick;
+                    }
+                    catch { /* device not available */ }
+                }
+            }
+        }
+
+        // ── IDisposable ───────────────────────────────────────────────────
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            _pollTimer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            _pollTimer?.Dispose();
+
+            lock (_devLock)
+            {
+                foreach (var js in _openDevices.Values)
+                    try { js.Dispose(); } catch { }
+                _openDevices.Clear();
+            }
+
+            _directInput?.Dispose();
+            _directInput = null;
+
+            GC.SuppressFinalize(this);
+        }
+    }
+}

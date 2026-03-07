@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>BmsLightBridge</AssemblyName>
+    <RootNamespace>BmsLightBridge</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>AnyCPU;x64</Platforms>
+
+  </PropertyGroup>
+
+  <!-- NuGet packages die automatisch worden gedownload door Visual Studio -->
+  <ItemGroup>
+    <!-- Voor seriële (COM poort) communicatie met Arduino -->
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <!-- Voor HID/USB communicatie met WinWing controllers -->
+    <PackageReference Include="HidSharp" Version="2.1.0" />
+    <!-- Voor JSON configuratie opslag -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Voor mooie UI iconen -->
+    <PackageReference Include="MahApps.Metro" Version="2.4.10" />
+    <PackageReference Include="MahApps.Metro.IconPacks" Version="4.11.0" />
+    <!-- Voor ICP DED font rendering (Bitmap) -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <!-- Voor joystick axis binding (brightness kanalen) -->
+    <PackageReference Include="SharpDX" Version="4.2.0" />
+    <PackageReference Include="SharpDX.DirectInput" Version="4.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\app.ico" />
+    <Resource Include="Resources\logo.png" />
+    <Resource Include="Resources\logo32.png" />
+    <Resource Include="Resources\logo.svg" />
+  </ItemGroup>
+
+  <!-- ICP DED font bitmaps — embedded in the assembly, loaded at runtime by DedFont.cs -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\DedFont.bmp" />
+    <EmbeddedResource Include="Resources\DedFontInverted.bmp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="hidapi.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
