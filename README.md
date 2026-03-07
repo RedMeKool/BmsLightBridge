@@ -1,6 +1,6 @@
 # BmsLightBridge
 
-![BMS Light Bridge screenshot](docs/screenshot.png)
+![BMS Light Bridge screenshot](Docs/screenshot.png)
 
 A C# WPF application that synchronises [Falcon BMS](https://www.benchmarksims.org/) cockpit lighting, display data, and hardware state directly to physical controllers — without relying on middleware like SimAppPro.
 
