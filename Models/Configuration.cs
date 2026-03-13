@@ -229,7 +229,13 @@ namespace BmsLightBridge.Models
             // crashes or is killed mid-write.
             string tempPath = ConfigPath + ".tmp";
             File.WriteAllText(tempPath, JsonConvert.SerializeObject(config, Formatting.Indented));
-            File.Replace(tempPath, ConfigPath, null);
+
+            // File.Replace requires the destination to already exist.
+            // On first launch config.json does not yet exist, so fall back to a plain Move.
+            if (File.Exists(ConfigPath))
+                File.Replace(tempPath, ConfigPath, null);
+            else
+                File.Move(tempPath, ConfigPath);
         }
 
         /// <summary>

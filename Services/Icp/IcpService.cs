@@ -177,7 +177,7 @@ namespace BmsLightBridge.Services.Icp
                 _mmfAccessor!.ReadArray(0, _readBuffer, 0, AREA_READ_SIZE);
 
                 var ded = ReadLines(_readBuffer, OFFSET_DED_LINES);
-                var inv = ReadLines(_readBuffer, OFFSET_DED_INVERT);
+                var inv = ReadInvertLines(_readBuffer, OFFSET_DED_INVERT);
 
                 if (DedChanged(ded, inv))
                 {
@@ -245,6 +245,31 @@ namespace BmsLightBridge.Services.Icp
                     chars[j] = (b == 0x01 || b == 0x02 || (b >= 0x20 && b <= 0x7E)) ? (char)b : ' ';
                 }
                 lines[i] = new string(chars).PadRight(24);
+            }
+            return lines;
+        }
+
+        /// <summary>
+        /// Reads the BMS Invert[] array from shared memory.
+        /// Unlike DEDLines, the Invert array is NOT null-terminated — it is a fixed-size
+        /// block where every byte is either a space (0x20, no inversion) or a non-space
+        /// marker byte (inversion active). We must read all DED_LINE_LEN bytes and treat
+        /// null bytes as spaces, otherwise invert markers past the first null are missed.
+        /// </summary>
+        private static string[] ReadInvertLines(byte[] raw, int offset)
+        {
+            var lines = new string[DED_LINE_COUNT];
+            for (int i = 0; i < DED_LINE_COUNT; i++)
+            {
+                int start = offset + i * DED_LINE_LEN;
+                var chars = new char[DED_LINE_LEN];
+                for (int j = 0; j < DED_LINE_LEN; j++)
+                {
+                    byte b = (start + j < raw.Length) ? raw[start + j] : (byte)0;
+                    // Any non-space, non-null byte signals inversion for this column.
+                    chars[j] = (b != 0x00 && b != 0x20) ? (char)b : ' ';
+                }
+                lines[i] = new string(chars);
             }
             return lines;
         }
