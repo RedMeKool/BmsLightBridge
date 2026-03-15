@@ -38,12 +38,5 @@ namespace BmsLightBridge.Services.Icp
             DataBuffer.CopyTo(dest, offset + 17);
         }
 
-        /// <summary>Allocating serialisation — kept for callers outside the hot-path.</summary>
-        public byte[] GetBytes()
-        {
-            var output = new byte[SerializedSize];
-            WriteTo(output, 0);
-            return output;
-        }
     }
 }

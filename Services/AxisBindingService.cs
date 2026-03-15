@@ -164,28 +164,39 @@ namespace BmsLightBridge.Services
 
             if (axisSnapshot.Count == 0 && btnSnapshot.Count == 0) return;
 
-            // Take a single snapshot of open device handles for the whole poll cycle.
+            // Take a single snapshot of open device handles for the whole poll cycle,
+            // then poll each device exactly once and cache the state.
+            // This avoids calling joystick.Poll() repeatedly when multiple bindings share a device.
             Dictionary<string, Joystick> devSnapshot;
             lock (_devLock)
                 devSnapshot = new Dictionary<string, Joystick>(_openDevices);
 
-            // ── Axis bindings ─────────────────────────────────────────────
-            foreach (var (ch, ab) in axisSnapshot)
-            {
-                devSnapshot.TryGetValue(ab.DeviceInstanceGuid, out var joystick);
-                if (joystick == null) continue;
+            var stateCache = new Dictionary<string, JoystickState?>();
 
-                JoystickState state;
+            JoystickState? GetDeviceState(string guid, Joystick joystick)
+            {
+                if (stateCache.TryGetValue(guid, out var cached)) return cached;
                 try
                 {
                     joystick.Poll();
-                    state = joystick.GetCurrentState();
+                    var s = joystick.GetCurrentState();
+                    stateCache[guid] = s;
+                    return s;
                 }
                 catch
                 {
-                    RemoveDevice(ab.DeviceInstanceGuid, joystick, devSnapshot);
-                    continue;
+                    RemoveDevice(guid, joystick, devSnapshot);
+                    stateCache[guid] = null;
+                    return null;
                 }
+            }
+
+            // ── Axis bindings ─────────────────────────────────────────────
+            foreach (var (ch, ab) in axisSnapshot)
+            {
+                if (!devSnapshot.TryGetValue(ab.DeviceInstanceGuid, out var joystick)) continue;
+                var state = GetDeviceState(ab.DeviceInstanceGuid, joystick);
+                if (state == null) continue;
 
                 int raw    = GetAxisValue(state, ab.Axis);
                 int mapped = Math.Clamp(raw, 0, 65535) * 255 / 65535;
@@ -196,20 +207,9 @@ namespace BmsLightBridge.Services
             // ── Button bindings ───────────────────────────────────────────
             foreach (var (ch, bb) in btnSnapshot)
             {
-                devSnapshot.TryGetValue(bb.DeviceInstanceGuid, out var joystick);
-                if (joystick == null) continue;
-
-                JoystickState state;
-                try
-                {
-                    joystick.Poll();
-                    state = joystick.GetCurrentState();
-                }
-                catch
-                {
-                    RemoveDevice(bb.DeviceInstanceGuid, joystick, devSnapshot);
-                    continue;
-                }
+                if (!devSnapshot.TryGetValue(bb.DeviceInstanceGuid, out var joystick)) continue;
+                var state = GetDeviceState(bb.DeviceInstanceGuid, joystick);
+                if (state == null) continue;
 
                 bool[] buttons = state.Buttons;
                 bool upNow   = bb.ButtonUp   < buttons.Length && buttons[bb.ButtonUp];

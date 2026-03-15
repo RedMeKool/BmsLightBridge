@@ -1,33 +1,16 @@
-using System.Runtime.InteropServices;
+using HidSharp;
 using BmsLightBridge.Models;
 using BmsLightBridge.ViewModels;
 
 namespace BmsLightBridge.Services
 {
     /// <summary>
-    /// Controls WinWing device LEDs via hidapi.dll.
+    /// Controls WinWing device LEDs via HidSharp.
     /// Protocol reverse-engineered via USBPcap capture of SimAppPro.
     /// </summary>
     public class WinWingService : IDisposable
     {
         public const int WinWingVendorId = 0x4098;
-
-        // ── hidapi P/Invoke ───────────────────────────────────────────────
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int hid_init();
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int hid_exit();
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr hid_open(ushort vendor_id, ushort product_id, IntPtr serial_number);
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void hid_close(IntPtr device);
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int hid_write(IntPtr device, byte[] data, UIntPtr length);
 
         // ── Known devices ─────────────────────────────────────────────────
 
@@ -44,13 +27,17 @@ namespace BmsLightBridge.Services
 
         // ── State ─────────────────────────────────────────────────────────
 
-        private readonly Dictionary<ushort, IntPtr> _handles = new();
+        private readonly Dictionary<ushort, HidStream> _streams = new();
         private readonly object _lock = new();
-        private bool _hidInitialized;
         private bool _disposed;
 
         // WinWing requires a periodic heartbeat to keep LEDs lit.
         private readonly System.Threading.Timer _heartbeatTimer;
+
+        // Pre-allocated packet buffers — avoids heap allocation on the hot 100 ms write path.
+        // All WinWing LED/brightness packets are 14 bytes.
+        private const int PacketSize = 14;
+        private readonly byte[] _packetBuf = new byte[PacketSize];
 
         private static readonly byte[] HeartbeatPacket =
             { 0x02, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
@@ -59,12 +46,6 @@ namespace BmsLightBridge.Services
 
         public WinWingService()
         {
-            try
-            {
-                _hidInitialized = hid_init() == 0;
-            }
-            catch { /* hidapi.dll not available */ }
-
             _heartbeatTimer = new System.Threading.Timer(
                 _ => SendHeartbeatToAll(),
                 null,
@@ -81,14 +62,10 @@ namespace BmsLightBridge.Services
 
             try
             {
-                var hidDevices = HidSharp.DeviceList.Local
-                    .GetHidDevices(WinWingVendorId)
-                    .ToList();
-
-                foreach (var d in hidDevices)
+                foreach (var d in DeviceList.Local.GetHidDevices(WinWingVendorId))
                 {
                     ushort pid = (ushort)d.ProductID;
-                    if (!KnownDevices.TryGetValue(pid, out var name)) continue;
+                    if (!KnownDevices.ContainsKey(pid)) continue;
                     if (addedPids.Contains(pid)) continue;
 
                     var groupName = WinWingDeviceGroups.GetGroupName(pid);
@@ -97,18 +74,13 @@ namespace BmsLightBridge.Services
                         var groupPids = WinWingDeviceGroups.Groups[groupName];
                         if (addedPids.Contains(groupPids[0])) continue;
 
-                        result.Add(new WinWingDevice
-                        {
-                            ProductId = groupPids[0],
-                            Name      = groupName,
-                        });
-
-                        foreach (var gPid in WinWingDeviceGroups.Groups[groupName])
+                        result.Add(new WinWingDevice { ProductId = groupPids[0], Name = groupName });
+                        foreach (var gPid in groupPids)
                             addedPids.Add(gPid);
                     }
                     else
                     {
-                        result.Add(new WinWingDevice { ProductId = pid, Name = name });
+                        result.Add(new WinWingDevice { ProductId = pid, Name = KnownDevices[pid] });
                         addedPids.Add(pid);
                     }
                 }
@@ -120,23 +92,31 @@ namespace BmsLightBridge.Services
 
         // ── Connection management ─────────────────────────────────────────
 
-        /// <summary>Opens a hidapi handle for the given product ID. Safe to call multiple times.</summary>
+        /// <summary>Opens a HidSharp stream for the given product ID. Safe to call multiple times.</summary>
         public bool Connect(int productId)
         {
             ushort pid = (ushort)productId;
             lock (_lock)
             {
-                if (_handles.TryGetValue(pid, out IntPtr existing) && existing != IntPtr.Zero)
+                if (_streams.ContainsKey(pid)) return true;
+
+                try
+                {
+                    var device = DeviceList.Local
+                        .GetHidDevices(WinWingVendorId, pid)
+                        .FirstOrDefault(d => d.GetMaxOutputReportLength() > 0);
+
+                    if (device == null) return false;
+                    if (!device.TryOpen(out HidStream stream)) return false;
+
+                    stream.WriteTimeout = 100;
+                    _streams[pid] = stream;
+
+                    HidWrite(stream, HeartbeatPacket);
+                    _heartbeatTimer.Change(1000, 1000);
                     return true;
-
-                IntPtr handle = hid_open((ushort)WinWingVendorId, pid, IntPtr.Zero);
-                if (handle == IntPtr.Zero) return false;
-
-                _handles[pid] = handle;
-
-                HidWrite(handle, HeartbeatPacket);
-                _heartbeatTimer.Change(1000, 1000);
-                return true;
+                }
+                catch { return false; }
             }
         }
 
@@ -145,13 +125,10 @@ namespace BmsLightBridge.Services
             ushort pid = (ushort)productId;
             lock (_lock)
             {
-                if (_handles.TryGetValue(pid, out IntPtr handle) && handle != IntPtr.Zero)
-                {
-                    try { hid_close(handle); } catch { }
-                    _handles.Remove(pid);
-                }
+                if (_streams.Remove(pid, out var stream))
+                    try { stream.Close(); } catch { }
 
-                if (_handles.Count == 0)
+                if (_streams.Count == 0)
                     _heartbeatTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             }
         }
@@ -161,75 +138,29 @@ namespace BmsLightBridge.Services
             _heartbeatTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             lock (_lock)
             {
-                foreach (var handle in _handles.Values)
-                    try { hid_close(handle); } catch { }
-                _handles.Clear();
+                foreach (var stream in _streams.Values)
+                    try { stream.Close(); } catch { }
+                _streams.Clear();
             }
         }
 
         // ── Light control ─────────────────────────────────────────────────
 
-        /// <summary>
-        /// Sets a single LED on/off. Uses SetBrightness for channels that require it.
-        /// </summary>
+        /// <summary>Sets a single LED on/off. Brightness channels are routed to SetBrightness.</summary>
         public bool SetLight(int productId, int lightIndex, bool on)
         {
-            ushort pid = (ushort)productId;
-
-            if (WinWingLightEntry.IsBrightnessChannel(pid, lightIndex))
+            if (WinWingLightEntry.IsBrightnessChannel((ushort)productId, lightIndex))
                 return SetBrightness(productId, lightIndex, on ? (byte)255 : (byte)0);
 
-            // Fast path: handle already open.
-            lock (_lock)
-            {
-                if (_handles.TryGetValue(pid, out IntPtr handle) && handle != IntPtr.Zero)
-                {
-                    int result = HidWrite(handle, BuildLightPacket(pid, lightIndex, on));
-                    if (result > 0) return true;
-                    _handles.Remove(pid);
-                    return false;
-                }
-            }
-
-            // Handle not open — connect (idempotent), then send once.
-            // Connect() acquires _lock internally, so we release above first to avoid re-entrancy.
-            if (!Connect(productId)) return false;
-            lock (_lock)
-            {
-                if (!_handles.TryGetValue(pid, out IntPtr handle) || handle == IntPtr.Zero)
-                    return false;
-                int result = HidWrite(handle, BuildLightPacket(pid, lightIndex, on));
-                if (result <= 0) { _handles.Remove(pid); return false; }
-                return true;
-            }
+            FillLightPacket((ushort)productId, lightIndex, on);
+            return WriteToDevice((ushort)productId, _packetBuf);
         }
 
         /// <summary>Sets a brightness channel (0–255) on a WinWing device.</summary>
         public bool SetBrightness(int productId, int lightIndex, byte brightness)
         {
-            ushort pid = (ushort)productId;
-
-            lock (_lock)
-            {
-                if (_handles.TryGetValue(pid, out IntPtr handle) && handle != IntPtr.Zero)
-                {
-                    int result = HidWrite(handle, BuildLightPacketForChannel(pid, lightIndex, brightness));
-                    if (result > 0) return true;
-                    _handles.Remove(pid);
-                    return false;
-                }
-            }
-
-            // Handle was not open — try to connect, then send once.
-            if (!Connect(productId)) return false;
-            lock (_lock)
-            {
-                if (!_handles.TryGetValue(pid, out IntPtr handle) || handle == IntPtr.Zero)
-                    return false;
-                int result = HidWrite(handle, BuildLightPacketForChannel(pid, lightIndex, brightness));
-                if (result <= 0) { _handles.Remove(pid); return false; }
-                return true;
-            }
+            FillBrightnessPacket((ushort)productId, lightIndex, brightness);
+            return WriteToDevice((ushort)productId, _packetBuf);
         }
 
         /// <summary>Applies all brightness channel settings.</summary>
@@ -239,24 +170,26 @@ namespace BmsLightBridge.Services
                 SetBrightness(ch.ProductId, ch.LightIndex, (byte)ch.FixedBrightness);
         }
 
-        public void ProcessMappings(
-            IEnumerable<SignalMapping> mappings,
-            Dictionary<string, bool> lightStates)
+        public void ProcessMappings(IEnumerable<SignalMapping> mappings, Dictionary<string, bool> lightStates)
         {
-            foreach (var mapping in mappings.Where(m => m.IsEnabled && m.TargetDevice == DeviceType.WinWing))
+            foreach (var m in mappings)
             {
-                bool on = lightStates.TryGetValue(mapping.BmsSignalName, out bool val) && val;
-                SetLight(mapping.WinWingProductId, mapping.WinWingLightIndex, on);
+                if (!m.IsEnabled || m.TargetDevice != DeviceType.WinWing) continue;
+                bool on = lightStates.TryGetValue(m.BmsSignalName, out bool val) && val;
+                SetLight(m.WinWingProductId, m.WinWingLightIndex, on);
             }
         }
 
         public void AllOff(IEnumerable<SignalMapping> mappings)
         {
-            foreach (var mapping in mappings.Where(m => m.IsEnabled && m.TargetDevice == DeviceType.WinWing))
-                SetLight(mapping.WinWingProductId, mapping.WinWingLightIndex, false);
+            foreach (var m in mappings)
+            {
+                if (m.IsEnabled && m.TargetDevice == DeviceType.WinWing)
+                    SetLight(m.WinWingProductId, m.WinWingLightIndex, false);
+            }
         }
 
-        // ── Packet builders ───────────────────────────────────────────────
+        // ── Packet builders (write into pre-allocated buffer) ─────────────
         // Protocol reverse-engineered from SimAppPro USB captures.
         // All packets: 02 [b2] [b3] 00 00 03 49 [index] [value] 00 00 00 00 00
         // b2/b3 are device-family specific; some devices route channels differently.
@@ -293,54 +226,81 @@ namespace BmsLightBridge.Services
             return (b2, b3, lightIndex);
         }
 
-        private static byte[] BuildLightPacket(ushort pid, int lightIndex, bool on)
+        private void FillLightPacket(ushort pid, int lightIndex, bool on)
         {
             var (b2, b3) = GetProtocolBytes(pid);
-            return new byte[]
-            {
-                0x02, b2, b3, 0x00, 0x00, 0x03, 0x49,
-                (byte)lightIndex,
-                on ? (byte)0x01 : (byte)0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00
-            };
+            _packetBuf[0] = 0x02; _packetBuf[1] = b2;  _packetBuf[2] = b3;  _packetBuf[3] = 0x00;
+            _packetBuf[4] = 0x00; _packetBuf[5] = 0x03; _packetBuf[6] = 0x49;
+            _packetBuf[7] = (byte)lightIndex;
+            _packetBuf[8] = on ? (byte)0x01 : (byte)0x00;
+            _packetBuf[9] = 0x00; _packetBuf[10] = 0x00; _packetBuf[11] = 0x00;
+            _packetBuf[12] = 0x00; _packetBuf[13] = 0x00;
         }
 
-        private static byte[] BuildLightPacketForChannel(ushort pid, int lightIndex, byte brightness)
+        private void FillBrightnessPacket(ushort pid, int lightIndex, byte brightness)
         {
             var (b2, b3, packetIndex) = GetChannelProtocol(pid, lightIndex);
-            return new byte[]
-            {
-                0x02, b2, b3, 0x00, 0x00, 0x03, 0x49,
-                (byte)packetIndex,
-                brightness,
-                0x00, 0x00, 0x00, 0x00, 0x00
-            };
+            _packetBuf[0] = 0x02; _packetBuf[1] = b2;  _packetBuf[2] = b3;  _packetBuf[3] = 0x00;
+            _packetBuf[4] = 0x00; _packetBuf[5] = 0x03; _packetBuf[6] = 0x49;
+            _packetBuf[7] = (byte)packetIndex;
+            _packetBuf[8] = brightness;
+            _packetBuf[9] = 0x00; _packetBuf[10] = 0x00; _packetBuf[11] = 0x00;
+            _packetBuf[12] = 0x00; _packetBuf[13] = 0x00;
         }
 
         // ── Heartbeat ─────────────────────────────────────────────────────
 
         private void SendHeartbeatToAll()
         {
-            List<(ushort pid, IntPtr handle)> snapshot;
+            List<(ushort pid, HidStream stream)> snapshot;
             lock (_lock)
             {
-                snapshot = _handles
-                    .Where(kv => kv.Value != IntPtr.Zero)
-                    .Select(kv => (kv.Key, kv.Value))
-                    .ToList();
+                snapshot = _streams.Select(kv => (kv.Key, kv.Value)).ToList();
             }
 
-            foreach (var (pid, handle) in snapshot)
+            foreach (var (pid, stream) in snapshot)
             {
-                if (HidWrite(handle, HeartbeatPacket) <= 0)
-                    lock (_lock) { _handles.Remove(pid); }
+                if (!HidWrite(stream, HeartbeatPacket))
+                    lock (_lock) { _streams.Remove(pid); }
             }
         }
 
         // ── Low-level write ───────────────────────────────────────────────
 
-        private static int HidWrite(IntPtr handle, byte[] data)
-            => hid_write(handle, data, (UIntPtr)data.Length);
+        /// <summary>
+        /// Connects if needed, then writes data to the device.
+        /// All writes on the 100 ms hot path go through here.
+        /// </summary>
+        private bool WriteToDevice(ushort pid, byte[] data)
+        {
+            lock (_lock)
+            {
+                if (_streams.TryGetValue(pid, out var stream))
+                {
+                    if (HidWrite(stream, data)) return true;
+                    _streams.Remove(pid);
+                }
+            }
+
+            // Not connected (or just dropped) — try to (re)connect, then write once.
+            if (!Connect(pid)) return false;
+            lock (_lock)
+            {
+                return _streams.TryGetValue(pid, out var stream) && HidWrite(stream, data);
+            }
+        }
+
+        /// <summary>
+        /// Writes a HID output report via HidSharp.
+        /// WinWing devices are written directly without a prepended report-ID byte,
+        /// consistent with how IcpHidDevice handles the same vendor's hardware.
+        /// Returns true on success.
+        /// </summary>
+        private static bool HidWrite(HidStream stream, byte[] data)
+        {
+            try { stream.Write(data); return true; }
+            catch { return false; }
+        }
 
         // ── IDisposable ───────────────────────────────────────────────────
 
@@ -353,9 +313,6 @@ namespace BmsLightBridge.Services
             _heartbeatTimer.Dispose();
 
             DisconnectAll();
-
-            if (_hidInitialized)
-                try { hid_exit(); } catch { }
 
             GC.SuppressFinalize(this);
         }

@@ -8,7 +8,7 @@
     xmlns:conv="clr-namespace:BmsLightBridge.Converters"
     xmlns:models="clr-namespace:BmsLightBridge.Models"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
-    Title="BMS Light Bridge"
+    Title="BMS Light Bridge v1.0.2"
     Height="780" Width="1280"
     MinHeight="600" MinWidth="900"
     Background="{StaticResource BackgroundBrush}"
@@ -42,7 +42,11 @@
     </metro:MetroWindow.Resources>
 
     <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- Header -->
+            <RowDefinition Height="Auto"/>  <!-- Menubalk -->
+            <RowDefinition Height="*"/>     <!-- Hoofdinhoud -->
+            <RowDefinition Height="Auto"/>  <!-- Statusbalk -->
         </Grid.RowDefinitions>
 
         <!-- ================================================================
@@ -89,7 +93,8 @@
                     <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource StartButton}"
                             Command="{Binding StartSyncCommand}"
-                            Margin="0,0,8,0" Width="110">
+                            Margin="0,0,8,0" Width="110"
+                            ToolTip="Start synchronising cockpit lighting from Falcon BMS to connected hardware">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial Kind="Play" Width="14" Height="14"
                                                         VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -98,7 +103,8 @@
                     </Button>
                     <Button Style="{StaticResource StopButton}"
                             Command="{Binding StopSyncCommand}"
-                            Width="110" Margin="0,0,8,0">
+                            Width="110" Margin="0,0,8,0"
+                            ToolTip="Stop synchronising cockpit lighting">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial Kind="Stop" Width="14" Height="14"
                                                         VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -286,9 +292,138 @@
         </Border>
 
         <!-- ================================================================
+             MENUBALK
+             ================================================================ -->
+        <Border Grid.Row="1"
+                Background="#141A1E"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Menu Background="Transparent"
+                  Foreground="{StaticResource TextPrimaryBrush}"
+                  FontSize="12">
+                <Menu.Resources>
+                    <Style TargetType="MenuItem">
+                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Padding" Value="12,6"/>
+                    </Style>
+                    <Style TargetType="Separator">
+                        <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
+                        <Setter Property="Margin" Value="6,2"/>
+                    </Style>
+                </Menu.Resources>
+
+                <!-- File -->
+                <MenuItem Header="File">
+                    <MenuItem Header="Import Config..."
+                              ToolTip="Load a previously exported config.json file, replacing the current configuration"
+                              Click="MenuImportConfig_Click">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="FolderOpen" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Export Config..."
+                              ToolTip="Save a copy of the current configuration to a file"
+                              Click="MenuExportConfig_Click">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="ContentSave" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Exit"
+                              ToolTip="Close BmsLightBridge"
+                              Click="MenuExit_Click">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="ExitToApp" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                </MenuItem>
+
+                <!-- Actions -->
+                <MenuItem Header="Actions">
+                    <MenuItem Header="Start Sync"
+                              Command="{Binding StartSyncCommand}"
+                              ToolTip="Start synchronising cockpit lighting from Falcon BMS to connected hardware">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="Play" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Stop Sync"
+                              Command="{Binding StopSyncCommand}"
+                              ToolTip="Stop synchronising cockpit lighting">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="Stop" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Test All Mappings"
+                              Command="{Binding TestAllCommand}"
+                              ToolTip="Turn all mapped lights ON at once to verify your wiring">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="Lightbulb" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Remove All Mappings"
+                              Command="{Binding RemoveAllMappingsCommand}"
+                              ToolTip="Remove all signal-to-device mappings (confirmation required)">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="TrashCan" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Refresh Devices"
+                              Command="{Binding RefreshDevicesCommand}"
+                              ToolTip="Scan for connected WinWing controllers and COM ports">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="Refresh" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                </MenuItem>
+
+                <!-- Settings -->
+                <MenuItem Header="Settings">
+                    <MenuItem Header="Auto Sync"
+                              ToolTip="Automatically start sync when BMS connects, and stop when BMS disconnects"
+                              IsCheckable="True"
+                              IsChecked="{Binding AutoSync, Mode=TwoWay}">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="Sync" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Start Minimized"
+                              ToolTip="Open BmsLightBridge minimized to the taskbar on startup"
+                              IsCheckable="True"
+                              IsChecked="{Binding StartMinimized, Mode=TwoWay}">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="WindowMinimize" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                </MenuItem>
+
+                <!-- Help -->
+                <MenuItem Header="Help">
+                    <MenuItem Header="About BmsLightBridge"
+                              ToolTip="Version information and credits"
+                              Click="MenuAbout_Click">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="InformationOutline" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="GitHub Repository"
+                              ToolTip="Open the BmsLightBridge GitHub page in your browser"
+                              Click="MenuGitHub_Click">
+                        <MenuItem.Icon>
+                            <iconPacks:PackIconMaterial Kind="Github" Width="14" Height="14"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                </MenuItem>
+            </Menu>
+        </Border>
+
+        <!-- ================================================================
              HOOFD INHOUD - Drie kolommen layout
              ================================================================ -->
-        <Grid Grid.Row="1" Margin="16">
+        <Grid Grid.Row="2" Margin="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="300"/>    <!-- Signaallijst -->
                 <ColumnDefinition Width="8"/>                    <!-- Splitter -->
@@ -701,7 +836,8 @@
 
                                     <!-- Arduino optie -->
                                     <Border Grid.Column="0" CornerRadius="6" Padding="12,8" Cursor="Hand"
-                                            BorderThickness="2">
+                                            BorderThickness="2"
+                                            ToolTip="Map this signal to a digital output pin on an Arduino or ESP32">
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Style.Triggers>
@@ -736,7 +872,8 @@
 
                                     <!-- WinWing optie -->
                                     <Border Grid.Column="2" CornerRadius="6" Padding="12,8" Cursor="Hand"
-                                            BorderThickness="2">
+                                            BorderThickness="2"
+                                            ToolTip="Map this signal to an LED on a WinWing USB HID controller">
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Style.Triggers>
@@ -783,7 +920,8 @@
                                     <ComboBox Grid.Column="0"
                                               Style="{StaticResource DarkComboBox}"
                                               ItemsSource="{Binding AvailableComPorts}"
-                                              SelectedItem="{Binding EditorComPort}"/>
+                                              SelectedItem="{Binding EditorComPort}"
+                                              ToolTip="Select the COM port your Arduino is connected to"/>
                                     <Button Grid.Column="2" Style="{StaticResource SecondaryButton}"
                                             Command="{Binding RefreshDevicesCommand}"
                                             ToolTip="Refresh COM port list">
@@ -798,7 +936,8 @@
                                                      Background="#1C2226"
                                                      Foreground="{StaticResource TextPrimaryBrush}"
                                                      BorderBrush="{StaticResource BorderBrush}"
-                                                     Height="32"/>
+                                                     Height="32"
+                                                     ToolTip="Arduino digital pin number that controls this light (1–53)"/>
 
                                 <TextBlock Style="{StaticResource LabelStyle}"
                                            Text="Tip: Pin 13 has a built-in LED on most Arduino boards."
@@ -868,7 +1007,8 @@
                                               Style="{StaticResource DarkComboBox}"
                                               ItemsSource="{Binding AvailableWinWingDevices}"
                                               SelectedItem="{Binding EditorWinWingDevice}"
-                                              DisplayMemberPath="Name"/>
+                                              DisplayMemberPath="Name"
+                                              ToolTip="Select the WinWing controller to map this signal to"/>
                                     <Button Grid.Column="2" Style="{StaticResource SecondaryButton}"
                                             Command="{Binding RefreshDevicesCommand}"
                                             ToolTip="Search for WinWing devices again">
@@ -898,7 +1038,8 @@
                                 <ComboBox Style="{StaticResource DarkComboBox}"
                                           ItemsSource="{Binding WinWingLightIndices}"
                                           SelectedItem="{Binding EditorLightEntry}"
-                                          DisplayMemberPath="Name"/>
+                                          DisplayMemberPath="Name"
+                                          ToolTip="Select which LED on the WinWing controller to control"/>
 
 
                             </StackPanel>
@@ -909,7 +1050,8 @@
                             <StackPanel>
                                 <Button Style="{StaticResource PrimaryButton}"
                                         Command="{Binding SaveMappingCommand}"
-                                        Margin="0,0,0,8">
+                                        Margin="0,0,0,8"
+                                        ToolTip="Save the current mapping for the selected signal">
                                     <StackPanel Orientation="Horizontal">
                                         <iconPacks:PackIconMaterial Kind="ContentSave" Width="14" Height="14"
                                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -919,7 +1061,8 @@
 
                                 <Button Style="{StaticResource SecondaryButton}"
                                         Command="{Binding DeleteMappingCommand}"
-                                        Margin="0,0,0,8">
+                                        Margin="0,0,0,8"
+                                        ToolTip="Remove the mapping for the selected signal">
                                     <StackPanel Orientation="Horizontal">
                                         <iconPacks:PackIconMaterial Kind="TrashCanOutline" Width="14" Height="14"
                                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -1036,7 +1179,8 @@
                                                   Style="{StaticResource DarkComboBox}"
                                                   ItemsSource="{Binding AvailableWinWingDevices}"
                                                   SelectedItem="{Binding SelectedBrightnessDevice, Mode=TwoWay}"
-                                                  DisplayMemberPath="Name"/>
+                                                  DisplayMemberPath="Name"
+                                                  ToolTip="Select the WinWing controller whose backlight brightness you want to adjust"/>
                                         <Button Grid.Column="2" Style="{StaticResource SecondaryButton}"
                                                 Command="{Binding RefreshDevicesCommand}"
                                                 ToolTip="Search for WinWing devices again">
@@ -1091,17 +1235,20 @@
                                                                              IsChecked="{Binding ModeIsManual, Mode=TwoWay}"
                                                                              GroupName="{Binding LightIndex}"
                                                                              Foreground="{StaticResource TextSecondaryBrush}"
-                                                                             FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                                             FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"
+                                                                             ToolTip="Set brightness manually using the slider below"/>
                                                                 <RadioButton Content="Axis"
                                                                              IsChecked="{Binding ModeIsAxis, Mode=TwoWay}"
                                                                              GroupName="{Binding LightIndex}"
                                                                              Foreground="{StaticResource TextSecondaryBrush}"
-                                                                             FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                                             FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"
+                                                                             ToolTip="Control brightness via a joystick or throttle axis"/>
                                                                 <RadioButton Content="Buttons"
                                                                              IsChecked="{Binding ModeIsButtons, Mode=TwoWay}"
                                                                              GroupName="{Binding LightIndex}"
                                                                              Foreground="{StaticResource TextSecondaryBrush}"
-                                                                             FontSize="11" VerticalAlignment="Center"/>
+                                                                             FontSize="11" VerticalAlignment="Center"
+                                                                             ToolTip="Control brightness by pressing two joystick buttons (step up / step down)"/>
                                                             </StackPanel>
                                                         </Grid>
 
@@ -1115,7 +1262,8 @@
                                                             <Slider Grid.Column="0" Minimum="0" Maximum="255"
                                                                     Value="{Binding FixedBrightness, Mode=TwoWay}"
                                                                     IsEnabled="{Binding ModeIsManual}"
-                                                                    VerticalAlignment="Center" Margin="0,0,8,0">
+                                                                    VerticalAlignment="Center" Margin="0,0,8,0"
+                                                                    ToolTip="Brightness level (0 = off, 255 = maximum)">
                                                                 <Slider.Style>
                                                                     <Style TargetType="Slider">
                                                                         <Setter Property="Opacity" Value="1.0"/>
@@ -1466,7 +1614,8 @@
                                             <CheckBox Grid.Column="1"
                                                       IsChecked="{Binding IcpDedEnabled, Mode=TwoWay}"
                                                       VerticalAlignment="Center"
-                                                      Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                      Foreground="{StaticResource TextPrimaryBrush}"
+                                                      ToolTip="Enable DED text synchronisation to the ICP dot-matrix LCD screen"/>
                                         </Grid>
                                     </Border>
 
@@ -1606,7 +1755,8 @@
                                             <CheckBox Grid.Column="1"
                                                       IsChecked="{Binding HeliosLaunchEnabled, Mode=TwoWay}"
                                                       VerticalAlignment="Center"
-                                                      Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                      Foreground="{StaticResource TextPrimaryBrush}"
+                                                      ToolTip="Automatically launch Helios Control Center with the selected profile when sync starts"/>
                                         </Grid>
                                     </Border>
 
@@ -1629,7 +1779,8 @@
                                             <CheckBox Grid.Column="1"
                                                       IsChecked="{Binding HeliosShutdownEnabled, Mode=TwoWay}"
                                                       VerticalAlignment="Center"
-                                                      Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                      Foreground="{StaticResource TextPrimaryBrush}"
+                                                      ToolTip="Automatically close Helios Control Center when sync stops"/>
                                         </Grid>
                                     </Border>
 
@@ -1722,7 +1873,7 @@
         <!-- ================================================================
              STATUS BALK
              ================================================================ -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="3"
                 Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0"

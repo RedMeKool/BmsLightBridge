@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
 using System.Timers;
 using BmsLightBridge.Models;
 
@@ -149,9 +150,9 @@ namespace BmsLightBridge.Services
                 // Reuse the pre-allocated _readBuffer — no heap allocation per poll.
                 _accessor!.ReadArray(0, _readBuffer, 0, READ_SIZE);
 
-                uint lb1 = BitConverter.ToUInt32(_readBuffer, OFFSET_LIGHTBITS);
-                uint lb2 = BitConverter.ToUInt32(_readBuffer, OFFSET_LIGHTBITS2);
-                uint lb3 = BitConverter.ToUInt32(_readBuffer, OFFSET_LIGHTBITS3);
+                uint lb1 = MemoryMarshal.Read<uint>(_readBuffer.AsSpan(OFFSET_LIGHTBITS));
+                uint lb2 = MemoryMarshal.Read<uint>(_readBuffer.AsSpan(OFFSET_LIGHTBITS2));
+                uint lb3 = MemoryMarshal.Read<uint>(_readBuffer.AsSpan(OFFSET_LIGHTBITS3));
 
                 if (!IsConnected)
                 {

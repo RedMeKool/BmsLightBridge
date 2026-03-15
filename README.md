@@ -67,7 +67,6 @@ BmsLightBridge/
 │   ├── Icp/
 │   │   ├── IcpService.cs          # Main ICP service orchestrator
 │   │   ├── IcpHidDevice.cs        # Direct HID communication
-│   │   ├── IcpPacket.cs           # 64-byte HID packet builder
 │   │   ├── DedCommand.cs          # DED command types
 │   │   └── DedFont.cs             # Glyph rendering (8×13px bitmap font)
 │   ├── WinWingService.cs          # WinWing HID communication

@@ -185,6 +185,7 @@ namespace BmsLightBridge.Models
         public int    ConfigVersion      { get; set; } = 1;
         public int    PollingIntervalMs  { get; set; } = 50;
         public bool   AutoStartOnLaunch  { get; set; } = false;
+        public bool   StartMinimized     { get; set; } = false;
         public bool   ShowOnlyMapped     { get; set; } = false;
         public bool   AutoSync           { get; set; } = false;
 
@@ -251,6 +252,28 @@ namespace BmsLightBridge.Models
         ///                        references it. Known-device entries are always kept so brightness
         ///                        settings survive a disconnect/reconnect cycle.
         /// </summary>
+        /// <summary>
+        /// Loads configuration from an arbitrary file path (used for import).
+        /// Returns null if the file cannot be parsed.
+        /// </summary>
+        public static AppConfiguration? LoadFrom(string path)
+        {
+            try
+            {
+                var config = JsonConvert.DeserializeObject<AppConfiguration>(File.ReadAllText(path));
+                return config;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Exports the current configuration to an arbitrary file path (used for export).
+        /// </summary>
+        public static void ExportTo(AppConfiguration config, string path)
+        {
+            File.WriteAllText(path, JsonConvert.SerializeObject(config, Formatting.Indented));
+        }
+
         private static void PruneOrphanedEntries(AppConfiguration config)
         {
             // ── Arduino devices ───────────────────────────────────────────

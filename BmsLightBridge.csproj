@@ -45,10 +45,5 @@
     <EmbeddedResource Include="Resources\DedFontInverted.bmp" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="hidapi.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
 
 </Project>

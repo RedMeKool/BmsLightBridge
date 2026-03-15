@@ -633,6 +633,24 @@ namespace BmsLightBridge.ViewModels
             }
         }
 
+        public bool StartMinimized
+        {
+            get => _config.StartMinimized;
+            set { _config.StartMinimized = value; OnPropertyChanged(); SaveConfig(); }
+        }
+
+        public bool AutoStartOnLaunch
+        {
+            get => _config.AutoStartOnLaunch;
+            set { _config.AutoStartOnLaunch = value; OnPropertyChanged(); SaveConfig(); }
+        }
+
+        public int PollingIntervalMs
+        {
+            get => _config.PollingIntervalMs;
+            set { _config.PollingIntervalMs = Math.Clamp(value, 10, 1000); OnPropertyChanged(); SaveConfig(); }
+        }
+
         // ── Helios launch ─────────────────────────────────────────────────
 
         public bool HeliosLaunchEnabled
@@ -685,6 +703,8 @@ namespace BmsLightBridge.ViewModels
         public bool HasWinWingDevices => AvailableWinWingDevices.Count > 0;
 
         public ObservableCollection<BrightnessChannelViewModel> BrightnessChannels         { get; } = new();
+        // Keyed by (productId, lightIndex) for O(1) lookup in the axis poll callback.
+        private readonly Dictionary<(int pid, int idx), BrightnessChannelViewModel> _brightnessLookup = new();
         public ObservableCollection<BrightnessChannelViewModel> SelectedBrightnessChannels { get; } = new();
         public ObservableCollection<JoystickDeviceViewModel>    AvailableJoysticks         { get; } = new();
 
@@ -880,6 +900,56 @@ namespace BmsLightBridge.ViewModels
         public RelayCommand                    ExpandAllCommand         { get; }
         public RelayCommand                    CollapseAllCommand       { get; }
 
+        /// <summary>
+        /// Replaces the current configuration with one loaded from the given file path,
+        /// saves it as the active config, and reloads the UI.
+        /// Returns false if the file cannot be parsed.
+        /// </summary>
+        public bool ImportConfig(string filePath)
+        {
+            var imported = ConfigurationManager.LoadFrom(filePath);
+            if (imported == null) return false;
+
+            _config = imported;
+            ConfigurationManager.Save(_config);
+
+            // Reset selection state before reinitialising — otherwise the ComboBox
+            // fires SelectionChanged with null when Categories is cleared, which causes
+            // FilterSignals to filter on null and show an empty signal list.
+            _selectedSignal = null;
+            _selectedCategory = "All";
+            OnPropertyChanged(nameof(SelectedSignal));
+            OnPropertyChanged(nameof(HasSelectedSignal));
+            OnPropertyChanged(nameof(SelectedCategory));
+
+            // Reload derived state from the new config
+            _showOnlyMapped = _config.ShowOnlyMapped;
+            _autoSync       = _config.AutoSync;
+            _icpDedEnabled  = _config.IcpDisplay.IcpDedEnabled;
+
+            // Notify all settings properties
+            OnPropertyChanged(nameof(AutoSync));
+            OnPropertyChanged(nameof(AutoStartOnLaunch));
+            OnPropertyChanged(nameof(StartMinimized));
+            OnPropertyChanged(nameof(ShowOnlyMapped));
+            OnPropertyChanged(nameof(IcpDedEnabled));
+            OnPropertyChanged(nameof(HeliosLaunchEnabled));
+            OnPropertyChanged(nameof(HeliosShutdownEnabled));
+            OnPropertyChanged(nameof(HeliosControlCenterPath));
+            OnPropertyChanged(nameof(HeliosProfilePath));
+            OnPropertyChanged(nameof(PollingIntervalMs));
+
+            InitializeSignals();
+            RefreshDevices();
+            return true;
+        }
+
+        /// <summary>Exports the current configuration to the given file path.</summary>
+        public void ExportConfig(string filePath)
+        {
+            ConfigurationManager.ExportTo(_config, filePath);
+        }
+
         // ── Constructor ───────────────────────────────────────────────────
         public MainViewModel()
         {
@@ -955,7 +1025,7 @@ namespace BmsLightBridge.ViewModels
         {
             var filtered = _allSignals.AsEnumerable();
 
-            if (SelectedCategory != "All")
+            if (!string.IsNullOrEmpty(SelectedCategory) && SelectedCategory != "All")
                 filtered = filtered.Where(s => s.Light.Category == SelectedCategory);
 
             if (!string.IsNullOrWhiteSpace(SearchText))
@@ -1092,6 +1162,7 @@ namespace BmsLightBridge.ViewModels
         private void RebuildBrightnessChannels()
         {
             BrightnessChannels.Clear();
+            _brightnessLookup.Clear();
 
             foreach (var device in AvailableWinWingDevices)
             {
@@ -1129,6 +1200,7 @@ namespace BmsLightBridge.ViewModels
                             DispatchToUi       = a => System.Windows.Application.Current.Dispatcher.Invoke(a)
                         };
                         BrightnessChannels.Add(vm);
+                        _brightnessLookup[(existing.ProductId, existing.LightIndex)] = vm;
                     }
                 }
             }
@@ -1320,14 +1392,8 @@ namespace BmsLightBridge.ViewModels
         {
             System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
             {
-                foreach (var ch in BrightnessChannels)
-                {
-                    if (ch.Model.ProductId == productId && ch.Model.LightIndex == lightIndex)
-                    {
-                        ch.LiveAxisValue = brightness;
-                        break;
-                    }
-                }
+                if (_brightnessLookup.TryGetValue((productId, lightIndex), out var ch))
+                    ch.LiveAxisValue = brightness;
             });
         }
 
