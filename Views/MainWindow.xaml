@@ -8,7 +8,7 @@
     xmlns:conv="clr-namespace:BmsLightBridge.Converters"
     xmlns:models="clr-namespace:BmsLightBridge.Models"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
-    Title="BMS Light Bridge v1.0.2"
+    Title="BMS Light Bridge v1.0.3"
     Height="780" Width="1280"
     MinHeight="600" MinWidth="900"
     Background="{StaticResource BackgroundBrush}"
@@ -1048,25 +1048,27 @@
                         <!-- Action buttons -->
                         <Border Style="{StaticResource CardStyle}">
                             <StackPanel>
+                                <!-- Add Mapping knop -->
                                 <Button Style="{StaticResource PrimaryButton}"
-                                        Command="{Binding SaveMappingCommand}"
+                                        Command="{Binding AddMappingCommand}"
                                         Margin="0,0,0,8"
-                                        ToolTip="Save the current mapping for the selected signal">
+                                        ToolTip="Add the current output configuration as a new mapping for this signal">
                                     <StackPanel Orientation="Horizontal">
-                                        <iconPacks:PackIconMaterial Kind="ContentSave" Width="14" Height="14"
+                                        <iconPacks:PackIconMaterial Kind="Plus" Width="14" Height="14"
                                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Save Mapping" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Add Mapping" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
+                                <!-- Delete All Mappings knop -->
                                 <Button Style="{StaticResource SecondaryButton}"
                                         Command="{Binding DeleteMappingCommand}"
                                         Margin="0,0,0,8"
-                                        ToolTip="Remove the mapping for the selected signal">
+                                        ToolTip="Remove all mappings for this signal">
                                     <StackPanel Orientation="Horizontal">
                                         <iconPacks:PackIconMaterial Kind="TrashCanOutline" Width="14" Height="14"
                                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Delete Mapping" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Delete All Mappings" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                                 <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,4,0,8"/>
@@ -1077,11 +1079,9 @@
                                     <Button.Style>
                                         <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
                                             <Style.Triggers>
-                                                <!-- Active (test running): orange/amber colour -->
                                                 <DataTrigger Binding="{Binding TestButtonIsActive}" Value="True">
                                                     <Setter Property="Background" Value="#D4881A"/>
                                                 </DataTrigger>
-                                                <!-- Inactive: accent colour -->
                                                 <DataTrigger Binding="{Binding TestButtonIsActive}" Value="False">
                                                     <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
                                                 </DataTrigger>
@@ -1133,7 +1133,7 @@
                                            Visibility="{Binding SelectedSignal.IsMapped, Converter={StaticResource BoolToHidden}}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock" BasedOn="{StaticResource LabelStyle}">
-                                            <Setter Property="Text" Value="Save a mapping first to enable testing."/>
+                                            <Setter Property="Text" Value="Add a mapping first to enable testing."/>
                                             <Setter Property="FontStyle" Value="Italic"/>
                                         </Style>
                                     </TextBlock.Style>
@@ -1142,16 +1142,48 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Huidige mapping weergave -->
+                    <!-- Huidige mappings lijstje -->
                     <Border Style="{StaticResource CardStyle}"
                             Visibility="{Binding SelectedSignal.IsMapped, Converter={StaticResource BoolToVisible}}">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource LabelStyle}" Text="CURRENT MAPPING" Margin="0,0,0,8"/>
-                            <Border CornerRadius="4" Background="#1A3EC98A" Padding="10,8">
-                                <TextBlock Text="{Binding CurrentMappingText}"
-                                           Foreground="#3EC98A" FontSize="12"
-                                           TextWrapping="Wrap"/>
-                            </Border>
+                            <TextBlock Style="{StaticResource LabelStyle}" Text="CURRENT MAPPINGS" Margin="0,0,0,8"/>
+                            <ItemsControl ItemsSource="{Binding SelectedSignal.MappingRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="4" Background="#1A2A3040" Padding="10,8"
+                                                Margin="0,0,0,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                                            VerticalAlignment="Center">
+                                                    <Ellipse Width="6" Height="6" Margin="0,0,8,0"
+                                                             Fill="{StaticResource AccentBrush}"
+                                                             VerticalAlignment="Center"/>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding DeviceLabel}"
+                                                                   Foreground="#3EC98A" FontSize="12"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding OutputLabel}"
+                                                                   Foreground="#3EC98A" FontSize="12"
+                                                                   FontWeight="SemiBold"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Command="{Binding DeleteCommand}"
+                                                        Style="{StaticResource SecondaryButton}"
+                                                        Height="22" Width="22" Padding="0"
+                                                        ToolTip="Remove this mapping">
+                                                    <iconPacks:PackIconMaterial Kind="Close"
+                                                                                Width="10" Height="10"/>
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Border>
 

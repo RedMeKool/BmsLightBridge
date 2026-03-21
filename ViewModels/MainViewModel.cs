@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using BmsLightBridge.Models;
@@ -24,15 +23,43 @@ namespace BmsLightBridge.ViewModels
         public CategoryGroup(string name) => Name = name;
     }
 
-    /// <summary>UI representation of a BMS signal with its associated mapping.</summary>
+    /// <summary>Represents one mapping row in the "Current Mappings" list for a signal.</summary>
+    public class MappingRowViewModel : BaseViewModel
+    {
+        public SignalMapping Mapping       { get; }
+        public RelayCommand  DeleteCommand { get; }
+
+        /// <summary>Eerste regel: apparaatnaam (Arduino COM poort of WinWing controllernaam).</summary>
+        public string DeviceLabel =>
+            Mapping.TargetDevice == DeviceType.Arduino
+                ? $"Arduino  {Mapping.ArduinoComPort}"
+                : $"WinWing  {Mapping.WinWingDeviceName}";
+
+        /// <summary>Tweede regel: de lamp of pin — altijd prominent zichtbaar.</summary>
+        public string OutputLabel =>
+            Mapping.TargetDevice == DeviceType.Arduino
+                ? $"Pin {Mapping.ArduinoPin}"
+                : string.IsNullOrEmpty(Mapping.WinWingLightName)
+                    ? $"LED {Mapping.WinWingLightIndex}"
+                    : Mapping.WinWingLightName;
+
+        public MappingRowViewModel(SignalMapping mapping, Action<MappingRowViewModel> onDelete)
+        {
+            Mapping       = mapping;
+            DeleteCommand = new RelayCommand(() => onDelete(this));
+        }
+    }
+
+    /// <summary>UI representation of a BMS signal with its associated mappings.</summary>
     public class SignalViewModel : BaseViewModel
     {
         private bool _isOn;
-        private bool _isMapped;
         private bool _isSelected;
 
-        public CockpitLight  Light   { get; }
-        public SignalMapping? Mapping { get; set; }
+        public CockpitLight Light { get; }
+
+        /// <summary>All mapping rows for this signal (may be empty, one, or many).</summary>
+        public ObservableCollection<MappingRowViewModel> MappingRows { get; } = new();
 
         public bool IsOn
         {
@@ -44,15 +71,7 @@ namespace BmsLightBridge.ViewModels
             }
         }
 
-        public bool IsMapped
-        {
-            get => _isMapped;
-            set
-            {
-                if (SetProperty(ref _isMapped, value))
-                    OnPropertyChanged(nameof(MappingText));
-            }
-        }
+        public bool IsMapped => MappingRows.Count > 0;
 
         public bool IsSelected
         {
@@ -61,13 +80,17 @@ namespace BmsLightBridge.ViewModels
         }
 
         public string StatusText  => IsOn ? "ON" : "OFF";
-        public string MappingText => Mapping == null
-            ? "Not mapped"
-            : Mapping.TargetDevice == DeviceType.Arduino
-                ? $"Arduino {Mapping.ArduinoComPort} Pin {Mapping.ArduinoPin}"
-                : $"WinWing {Mapping.WinWingDeviceName} LED {Mapping.WinWingLightIndex}";
+        public int    MappingCount => MappingRows.Count;
 
-        public SignalViewModel(CockpitLight light) => Light = light;
+        public SignalViewModel(CockpitLight light)
+        {
+            Light = light;
+            MappingRows.CollectionChanged += (_, _) =>
+            {
+                OnPropertyChanged(nameof(IsMapped));
+                OnPropertyChanged(nameof(MappingCount));
+            };
+        }
     }
 
     /// <summary>ViewModel for one available joystick device (shown in the axis picker combo-box).</summary>
@@ -86,24 +109,22 @@ namespace BmsLightBridge.ViewModels
         private readonly string _label;
 
         // ── Binding mode ──────────────────────────────────────────────────
-        // Three exclusive modes: Manual (slider), Axis, Buttons.
         public enum BindingMode { Manual, Axis, Buttons }
-
         private BindingMode _mode = BindingMode.Manual;
 
         // ── Axis binding UI state ─────────────────────────────────────────
         private JoystickDeviceViewModel? _selectedJoystick;
-        private string                   _axisJoystickGuid = "";   // persisted separately — model may be null
-        private Models.JoystickAxis      _selectedAxis = Models.JoystickAxis.Z;
+        private string                   _axisJoystickGuid = "";
+        private Models.JoystickAxis      _selectedAxis     = Models.JoystickAxis.Z;
         private bool                     _axisInvert;
         private int                      _liveAxisValue;
         private bool                     _isDetectingAxis;
 
         // ── Button binding UI state ───────────────────────────────────────
         private JoystickDeviceViewModel? _selectedButtonJoystick;
-        private string                   _buttonJoystickGuid = "";  // persisted separately
-        private int                      _buttonUp      = 0;
-        private int                      _buttonDown    = 1;
+        private string                   _buttonJoystickGuid = "";
+        private int                      _buttonUp           = 0;
+        private int                      _buttonDown         = 1;
 
         public BrightnessChannelViewModel(WinWingBrightnessChannel model, string label, Action onChanged)
         {
@@ -122,9 +143,9 @@ namespace BmsLightBridge.ViewModels
             // This ensures switching back to a mode always shows the last saved values.
             if (model.AxisBinding != null)
             {
-                _selectedAxis      = model.AxisBinding.Axis;
-                _axisInvert        = model.AxisBinding.Invert;
-                _axisJoystickGuid  = model.AxisBinding.DeviceInstanceGuid;
+                _selectedAxis     = model.AxisBinding.Axis;
+                _axisInvert       = model.AxisBinding.Invert;
+                _axisJoystickGuid = model.AxisBinding.DeviceInstanceGuid;
             }
             if (model.ButtonBinding != null)
             {
@@ -134,7 +155,6 @@ namespace BmsLightBridge.ViewModels
             }
 
             // Determine active mode — button takes precedence if both somehow exist.
-            // Wipe the non-active one from the model so config stays clean.
             if (model.ButtonBinding != null)
             {
                 _mode             = BindingMode.Buttons;
@@ -180,8 +200,6 @@ namespace BmsLightBridge.ViewModels
             OnPropertyChanged(nameof(AxisPanelVisible));
             OnPropertyChanged(nameof(ButtonPanelVisible));
 
-            // Wipe the non-active binding from the model so the saved config stays clean,
-            // but keep the ViewModel fields intact so switching back restores the last values.
             SaveBinding();
             _onChanged();
         }
@@ -241,7 +259,6 @@ namespace BmsLightBridge.ViewModels
                 if (SetProperty(ref _liveAxisValue, value))
                 {
                     _model.FixedBrightness = value;
-                    // DisplayBrightness mirrors FixedBrightness in all modes
                     OnPropertyChanged(nameof(FixedBrightness));
                     OnPropertyChanged(nameof(DisplayBrightness));
                 }
@@ -271,26 +288,14 @@ namespace BmsLightBridge.ViewModels
 
         private void StartDetectAxis()
         {
-            if (AxisBindingService == null || _selectedJoystick == null) return;
-            if (_isDetectingAxis) return;
+            if (AxisBindingService == null || _selectedJoystick == null || _isDetectingAxis) return;
 
             IsDetectingAxis = true;
-
             AxisBindingService.DetectAxis(
                 _selectedJoystick.InstanceGuid,
                 timeoutMs: 8000,
-                onDetected: axis =>
-                {
-                    DispatchToUi?.Invoke(() =>
-                    {
-                        SelectedAxis    = axis;
-                        IsDetectingAxis = false;
-                    });
-                },
-                onTimeout: () =>
-                {
-                    DispatchToUi?.Invoke(() => IsDetectingAxis = false);
-                });
+                onDetected: axis => DispatchToUi?.Invoke(() => { SelectedAxis = axis; IsDetectingAxis = false; }),
+                onTimeout:  ()   => DispatchToUi?.Invoke(() =>   IsDetectingAxis = false));
         }
 
         public JoystickDeviceViewModel? SelectedButtonJoystick
@@ -333,59 +338,43 @@ namespace BmsLightBridge.ViewModels
             }
         }
 
-        public bool IsDetecting    => _detecting != DetectTarget.None;
-        public bool IsDetectingUp  => _detecting == DetectTarget.Up;
-        public bool IsDetectingDown=> _detecting == DetectTarget.Down;
+        public bool IsDetecting     => _detecting != DetectTarget.None;
+        public bool IsDetectingUp   => _detecting == DetectTarget.Up;
+        public bool IsDetectingDown => _detecting == DetectTarget.Down;
 
-        // Injected by MainViewModel after construction so the ViewModel can call back into the service.
+        // Injected by MainViewModel after construction.
         public Services.AxisBindingService? AxisBindingService { private get; set; }
-
-        // Injected dispatcher action so UI updates happen on the correct thread.
-        public Action<Action>? DispatchToUi { private get; set; }
+        public Action<Action>?              DispatchToUi       { private get; set; }
 
         public RelayCommand DetectButtonUpCommand   { get; }
         public RelayCommand DetectButtonDownCommand { get; }
 
         private void StartDetect(DetectTarget target)
         {
-            if (AxisBindingService == null || _selectedButtonJoystick == null) return;
-            if (IsDetecting) return;  // already listening
+            if (AxisBindingService == null || _selectedButtonJoystick == null || IsDetecting) return;
 
             Detecting = target;
-
             AxisBindingService.DetectButton(
                 _selectedButtonJoystick.InstanceGuid,
                 timeoutMs: 8000,
-                onDetected: idx =>
+                onDetected: idx => DispatchToUi?.Invoke(() =>
                 {
-                    DispatchToUi?.Invoke(() =>
-                    {
-                        if (target == DetectTarget.Up)
-                            ButtonUp = idx;
-                        else
-                            ButtonDown = idx;
-                        Detecting = DetectTarget.None;
-                    });
-                },
-                onTimeout: () =>
-                {
-                    DispatchToUi?.Invoke(() => Detecting = DetectTarget.None);
-                });
+                    if (target == DetectTarget.Up) ButtonUp = idx; else ButtonDown = idx;
+                    Detecting = DetectTarget.None;
+                }),
+                onTimeout: () => DispatchToUi?.Invoke(() => Detecting = DetectTarget.None));
         }
 
         public WinWingBrightnessChannel Model => _model;
 
         /// <summary>
-        /// Resets this channel to Manual mode at 100% brightness, wiping all axis/button bindings
-        /// from both the ViewModel fields and the model. Called by the "Reset to default" button.
+        /// Resets this channel to Manual mode at 100% brightness, wiping all axis/button bindings.
+        /// Called by the "Reset to default" button.
         /// </summary>
         public void ResetToManual()
         {
-            // Cancel any in-progress detection
-            _isDetectingAxis = false;
-            _detecting       = DetectTarget.None;
-
-            // Wipe ViewModel fields for both binding types
+            _isDetectingAxis        = false;
+            _detecting              = DetectTarget.None;
             _selectedJoystick       = null;
             _axisJoystickGuid       = "";
             _selectedAxis           = Models.JoystickAxis.Z;
@@ -394,14 +383,11 @@ namespace BmsLightBridge.ViewModels
             _buttonJoystickGuid     = "";
             _buttonUp               = 0;
             _buttonDown             = 1;
+            _mode                   = BindingMode.Manual;
+            _model.FixedBrightness  = 255;
+            _model.AxisBinding      = null;
+            _model.ButtonBinding    = null;
 
-            // Switch to Manual and set brightness to 255
-            _mode                  = BindingMode.Manual;
-            _model.FixedBrightness = 255;
-            _model.AxisBinding     = null;
-            _model.ButtonBinding   = null;
-
-            // Notify all affected properties
             OnPropertyChanged(nameof(ModeIsManual));
             OnPropertyChanged(nameof(ModeIsAxis));
             OnPropertyChanged(nameof(ModeIsButtons));
@@ -429,7 +415,6 @@ namespace BmsLightBridge.ViewModels
             {
                 case BindingMode.Axis:
                     _model.ButtonBinding = null;
-                    // Use _selectedJoystick if connected, otherwise fall back to stored GUID
                     string axisGuid = _selectedJoystick?.InstanceGuid ?? _axisJoystickGuid;
                     _model.AxisBinding = string.IsNullOrEmpty(axisGuid) ? null : new Models.AxisBinding
                     {
@@ -467,8 +452,6 @@ namespace BmsLightBridge.ViewModels
         {
             var list = available.ToList();
 
-            // Always restore both joystick selections from stored GUIDs,
-            // regardless of which mode is currently active.
             if (!string.IsNullOrEmpty(_axisJoystickGuid))
             {
                 _selectedJoystick = list.FirstOrDefault(j => j.InstanceGuid == _axisJoystickGuid);
@@ -497,8 +480,7 @@ namespace BmsLightBridge.ViewModels
         // ── Bindable properties ───────────────────────────────────────────
         private bool   _isBmsConnected;
         private bool   _isSyncing;
-        private string _statusMessage = "Ready. Start BMS and press 'Start Sync'.";
-        private string _bmsStatusText = "Not connected";
+        private string _statusMessage    = "Ready. Start BMS and press 'Start Sync'.";
         private SignalViewModel? _selectedSignal;
         private string _searchText       = "";
         private string _selectedCategory = "All";
@@ -508,10 +490,13 @@ namespace BmsLightBridge.ViewModels
             get => _isBmsConnected;
             set
             {
-                SetProperty(ref _isBmsConnected, value);
-                BmsStatusText = value ? "Connected to BMS" : "BMS not detected";
+                if (SetProperty(ref _isBmsConnected, value))
+                    OnPropertyChanged(nameof(BmsStatusText));
             }
         }
+
+        /// <summary>Computed from IsBmsConnected — no separate backing field needed.</summary>
+        public string BmsStatusText => IsBmsConnected ? "Connected to BMS" : "BMS not detected";
 
         public bool IsSyncing
         {
@@ -521,7 +506,6 @@ namespace BmsLightBridge.ViewModels
                 SetProperty(ref _isSyncing, value);
                 OnPropertyChanged(nameof(CanStart));
                 OnPropertyChanged(nameof(CanStop));
-                // Force WPF to re-evaluate CanExecute on Start/Stop buttons.
                 System.Windows.Application.Current?.Dispatcher.BeginInvoke(
                     System.Windows.Threading.DispatcherPriority.Normal,
                     new System.Action(System.Windows.Input.CommandManager.InvalidateRequerySuggested));
@@ -532,12 +516,6 @@ namespace BmsLightBridge.ViewModels
         {
             get => _statusMessage;
             set => SetProperty(ref _statusMessage, value);
-        }
-
-        public string BmsStatusText
-        {
-            get => _bmsStatusText;
-            set => SetProperty(ref _bmsStatusText, value);
         }
 
         public SignalViewModel? SelectedSignal
@@ -558,34 +536,16 @@ namespace BmsLightBridge.ViewModels
 
                 OnPropertyChanged(nameof(HasSelectedSignal));
                 OnPropertyChanged(nameof(TestButtonIsActive));
-                OnPropertyChanged(nameof(CurrentMappingText));
-
-                if (value?.Mapping != null)
-                    LoadMappingToEditor(value.Mapping);
             }
         }
 
         public bool HasSelectedSignal => SelectedSignal != null;
+        public bool CanStart          => !IsSyncing;
+        public bool CanStop           => IsSyncing;
 
-        public string CurrentMappingText
-        {
-            get
-            {
-                var m = SelectedSignal?.Mapping;
-                if (m == null) return "Not mapped";
-                return m.TargetDevice == DeviceType.Arduino
-                    ? $"Arduino {m.ArduinoComPort}  Pin {m.ArduinoPin}"
-                    : $"WinWing {m.WinWingDeviceName}  LED {m.WinWingLightIndex}";
-            }
-        }
-
-        public bool CanStart => !IsSyncing;
-        public bool CanStop  => IsSyncing;
-
-        // ── ICP Display properties ─────────────────────────────────────────
+        // ── ICP Display properties ────────────────────────────────────────
         private bool _icpDedEnabled;
 
-        /// <summary>Whether DED LCD sync is enabled for the WinWing ICP.</summary>
         public bool IcpDedEnabled
         {
             get => _icpDedEnabled;
@@ -594,43 +554,27 @@ namespace BmsLightBridge.ViewModels
                 SetProperty(ref _icpDedEnabled, value);
                 _config.IcpDisplay.IcpDedEnabled = value;
                 SaveConfig();
-
-                // Apply live if sync is already running
-                if (IsSyncing)
-                    _syncService.ApplyIcpConfig(value);
-
+                if (IsSyncing) _syncService.ApplyIcpConfig(value);
                 StatusMessage = value
                     ? "ICP DED LCD synchronisation enabled."
                     : "ICP DED LCD synchronisation disabled.";
             }
         }
 
-        /// <summary>True when the ICP HID device is physically connected.</summary>
         public bool IcpIsConnected => _syncService.IcpOutput.IsConnected;
 
         private bool _showOnlyMapped;
         public bool ShowOnlyMapped
         {
             get => _showOnlyMapped;
-            set
-            {
-                SetProperty(ref _showOnlyMapped, value);
-                _config.ShowOnlyMapped = value;
-                SaveConfig();
-                FilterSignals();
-            }
+            set { SetProperty(ref _showOnlyMapped, value); _config.ShowOnlyMapped = value; SaveConfig(); FilterSignals(); }
         }
 
         private bool _autoSync;
         public bool AutoSync
         {
             get => _autoSync;
-            set
-            {
-                SetProperty(ref _autoSync, value);
-                _config.AutoSync = value;
-                SaveConfig();
-            }
+            set { SetProperty(ref _autoSync, value); _config.AutoSync = value; SaveConfig(); }
         }
 
         public bool StartMinimized
@@ -677,7 +621,7 @@ namespace BmsLightBridge.ViewModels
             set { _config.HeliosLaunch.ProfilePath = value; OnPropertyChanged(); SaveConfig(); }
         }
 
-        public RelayCommand BrowseHeliosExeCommand  { get; }
+        public RelayCommand BrowseHeliosExeCommand     { get; }
         public RelayCommand BrowseHeliosProfileCommand { get; }
 
         public string SearchText
@@ -703,7 +647,6 @@ namespace BmsLightBridge.ViewModels
         public bool HasWinWingDevices => AvailableWinWingDevices.Count > 0;
 
         public ObservableCollection<BrightnessChannelViewModel> BrightnessChannels         { get; } = new();
-        // Keyed by (productId, lightIndex) for O(1) lookup in the axis poll callback.
         private readonly Dictionary<(int pid, int idx), BrightnessChannelViewModel> _brightnessLookup = new();
         public ObservableCollection<BrightnessChannelViewModel> SelectedBrightnessChannels { get; } = new();
         public ObservableCollection<JoystickDeviceViewModel>    AvailableJoysticks         { get; } = new();
@@ -712,12 +655,7 @@ namespace BmsLightBridge.ViewModels
         public Models.WinWingDevice? SelectedBrightnessDevice
         {
             get => _selectedBrightnessDevice;
-            set
-            {
-                _selectedBrightnessDevice = value;
-                OnPropertyChanged();
-                UpdateSelectedBrightnessChannels();
-            }
+            set { _selectedBrightnessDevice = value; OnPropertyChanged(); UpdateSelectedBrightnessChannels(); }
         }
 
         private void UpdateSelectedBrightnessChannels()
@@ -736,11 +674,11 @@ namespace BmsLightBridge.ViewModels
         }
 
         // ── Mapping editor properties ─────────────────────────────────────
-        private DeviceType             _editorDeviceType  = DeviceType.Arduino;
-        private string                 _editorComPort     = "";
-        private int                    _editorPin         = 13;
-        private Models.WinWingDevice?  _editorWinWingDevice;
-        private int                    _editorLightIndex  = 0;
+        private DeviceType            _editorDeviceType = DeviceType.Arduino;
+        private string                _editorComPort    = "";
+        private int                   _editorPin        = 13;
+        private Models.WinWingDevice? _editorWinWingDevice;
+        private int                   _editorLightIndex = 0;
 
         // Board-level settings (per COM port, stored in ArduinoDevices)
         private int  _boardBaudRate     = 115200;
@@ -750,12 +688,7 @@ namespace BmsLightBridge.ViewModels
         public DeviceType EditorDeviceType
         {
             get => _editorDeviceType;
-            set
-            {
-                SetProperty(ref _editorDeviceType, value);
-                OnPropertyChanged(nameof(IsArduinoSelected));
-                OnPropertyChanged(nameof(IsWinWingSelected));
-            }
+            set { SetProperty(ref _editorDeviceType, value); OnPropertyChanged(nameof(IsArduinoSelected)); OnPropertyChanged(nameof(IsWinWingSelected)); }
         }
 
         public bool IsArduinoSelected
@@ -809,12 +742,11 @@ namespace BmsLightBridge.ViewModels
         {
             if (string.IsNullOrEmpty(_editorComPort)) return;
 
-            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == _editorComPort);
-            if (dev == null)
-            {
-                dev = new Models.ArduinoDevice { ComPort = _editorComPort };
+            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == _editorComPort)
+                      ?? new Models.ArduinoDevice { ComPort = _editorComPort };
+
+            if (!_config.ArduinoDevices.Contains(dev))
                 _config.ArduinoDevices.Add(dev);
-            }
 
             dev.BaudRate     = _boardBaudRate;
             dev.ResetDelayMs = _boardResetDelayMs;
@@ -841,24 +773,16 @@ namespace BmsLightBridge.ViewModels
             set => SetProperty(ref _editorLightIndex, value);
         }
 
-        public List<WinWingLightEntry> WinWingLightIndices
-        {
-            get
-            {
-                if (EditorWinWingDevice == null) return new List<WinWingLightEntry>();
-                return WinWingLightEntry.GetLightsForDevice((ushort)EditorWinWingDevice.ProductId);
-            }
-        }
+        public List<WinWingLightEntry> WinWingLightIndices =>
+            EditorWinWingDevice == null
+                ? new List<WinWingLightEntry>()
+                : WinWingLightEntry.GetLightsForDevice((ushort)EditorWinWingDevice.ProductId);
 
         private WinWingLightEntry? _editorLightEntry;
         public WinWingLightEntry? EditorLightEntry
         {
             get => _editorLightEntry;
-            set
-            {
-                SetProperty(ref _editorLightEntry, value);
-                if (value != null) EditorLightIndex = value.Index;
-            }
+            set { SetProperty(ref _editorLightEntry, value); if (value != null) EditorLightIndex = value.Index; }
         }
 
         // ── Statistics ────────────────────────────────────────────────────
@@ -872,33 +796,71 @@ namespace BmsLightBridge.ViewModels
         public bool IsTestMode
         {
             get => _isTestMode;
-            set
-            {
-                SetProperty(ref _isTestMode, value);
-                OnPropertyChanged(nameof(TestButtonLabel));
-                OnPropertyChanged(nameof(TestButtonIsActive));
-            }
+            set { SetProperty(ref _isTestMode, value); OnPropertyChanged(nameof(TestButtonLabel)); OnPropertyChanged(nameof(TestButtonIsActive)); }
         }
 
         public string TestButtonLabel    => IsTestMode ? "Stop Test" : "Test Signal";
         public bool   TestButtonIsActive => IsTestMode;
 
         // ── Commands ──────────────────────────────────────────────────────
-        public RelayCommand                    StartSyncCommand         { get; }
-        public RelayCommand                    StopSyncCommand          { get; }
-        public RelayCommand                    SaveMappingCommand       { get; }
-        public RelayCommand                    DeleteMappingCommand     { get; }
-        public RelayCommand                    RemoveAllMappingsCommand { get; }
-        public RelayCommand                    RefreshDevicesCommand    { get; }
-        public RelayCommand                    TestSignalCommand        { get; }
-        public RelayCommand                    DiagnosticCommand        { get; }
-        public RelayCommand                    TestAllCommand           { get; }
-        public RelayCommand                    SaveBrightnessCommand    { get; }
-        public RelayCommand                    ResetBrightnessCommand   { get; }
-        public RelayCommand<SignalViewModel>   SelectSignalCommand      { get; }
-        public RelayCommand<CategoryGroup>     ToggleCategoryCommand    { get; }
-        public RelayCommand                    ExpandAllCommand         { get; }
-        public RelayCommand                    CollapseAllCommand       { get; }
+        public RelayCommand                  StartSyncCommand         { get; }
+        public RelayCommand                  StopSyncCommand          { get; }
+        public RelayCommand                  AddMappingCommand        { get; }
+        public RelayCommand                  DeleteMappingCommand     { get; }
+        public RelayCommand                  RemoveAllMappingsCommand { get; }
+        public RelayCommand                  RefreshDevicesCommand    { get; }
+        public RelayCommand                  TestSignalCommand        { get; }
+        public RelayCommand                  DiagnosticCommand        { get; }
+        public RelayCommand                  TestAllCommand           { get; }
+        public RelayCommand                  SaveBrightnessCommand    { get; }
+        public RelayCommand                  ResetBrightnessCommand   { get; }
+        public RelayCommand<SignalViewModel> SelectSignalCommand      { get; }
+        public RelayCommand<CategoryGroup>   ToggleCategoryCommand    { get; }
+        public RelayCommand                  ExpandAllCommand         { get; }
+        public RelayCommand                  CollapseAllCommand       { get; }
+
+        // ── Constructor ───────────────────────────────────────────────────
+        public MainViewModel()
+        {
+            _config         = ConfigurationManager.Load();
+            _showOnlyMapped = _config.ShowOnlyMapped;
+            _autoSync       = _config.AutoSync;
+            _icpDedEnabled  = _config.IcpDisplay.IcpDedEnabled;
+
+            _syncService = new SyncService();
+            _syncService.BmsConnectionChanged += OnBmsConnectionChanged;
+            _syncService.SyncStateChanged     += OnSyncStateChanged;
+            _syncService.LightStatesUpdated   += OnLightStatesUpdated;
+            _syncService.IcpConnectionChanged += (_, _) => OnPropertyChanged(nameof(IcpIsConnected));
+            _syncService.AxisBindings.BrightnessChanged += OnAxisBrightnessChanged;
+
+            StartSyncCommand         = new RelayCommand(StartSync,         () => CanStart);
+            StopSyncCommand          = new RelayCommand(StopSync,          () => CanStop);
+            AddMappingCommand        = new RelayCommand(AddMapping,        () => HasSelectedSignal);
+            DeleteMappingCommand     = new RelayCommand(DeleteAllMappings, () => SelectedSignal?.IsMapped == true);
+            RemoveAllMappingsCommand = new RelayCommand(RemoveAllMappings, () => _config.Mappings.Any());
+            RefreshDevicesCommand    = new RelayCommand(RefreshDevices);
+            SaveBrightnessCommand    = new RelayCommand(SaveBrightness,    () => SelectedBrightnessDevice != null);
+            ResetBrightnessCommand   = new RelayCommand(ResetBrightness,   () => SelectedBrightnessDevice != null);
+            TestSignalCommand        = new RelayCommand(ToggleTestSignal,  () => SelectedSignal?.IsMapped == true);
+            DiagnosticCommand        = new RelayCommand(RunDiagnostic,     () => SelectedSignal?.IsMapped == true && IsArduinoSelected);
+            TestAllCommand           = new RelayCommand(TestAllMappings,   () => _config.Mappings.Any(m => m.IsEnabled));
+
+            BrowseHeliosExeCommand     = new RelayCommand(BrowseHeliosExe);
+            BrowseHeliosProfileCommand = new RelayCommand(BrowseHeliosProfile);
+            SelectSignalCommand        = new RelayCommand<SignalViewModel>(s => SelectedSignal = s);
+            ToggleCategoryCommand      = new RelayCommand<CategoryGroup>(g => { if (g != null) g.IsExpanded = !g.IsExpanded; });
+            ExpandAllCommand           = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = true; });
+            CollapseAllCommand         = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = false; });
+
+            InitializeSignals();
+            RefreshDevices();
+
+            if (_config.AutoStartOnLaunch)
+                StartSync();
+        }
+
+        // ── Config import / export ────────────────────────────────────────
 
         /// <summary>
         /// Replaces the current configuration with one loaded from the given file path,
@@ -916,18 +878,16 @@ namespace BmsLightBridge.ViewModels
             // Reset selection state before reinitialising — otherwise the ComboBox
             // fires SelectionChanged with null when Categories is cleared, which causes
             // FilterSignals to filter on null and show an empty signal list.
-            _selectedSignal = null;
+            _selectedSignal   = null;
             _selectedCategory = "All";
             OnPropertyChanged(nameof(SelectedSignal));
             OnPropertyChanged(nameof(HasSelectedSignal));
             OnPropertyChanged(nameof(SelectedCategory));
 
-            // Reload derived state from the new config
             _showOnlyMapped = _config.ShowOnlyMapped;
             _autoSync       = _config.AutoSync;
             _icpDedEnabled  = _config.IcpDisplay.IcpDedEnabled;
 
-            // Notify all settings properties
             OnPropertyChanged(nameof(AutoSync));
             OnPropertyChanged(nameof(AutoStartOnLaunch));
             OnPropertyChanged(nameof(StartMinimized));
@@ -944,54 +904,7 @@ namespace BmsLightBridge.ViewModels
             return true;
         }
 
-        /// <summary>Exports the current configuration to the given file path.</summary>
-        public void ExportConfig(string filePath)
-        {
-            ConfigurationManager.ExportTo(_config, filePath);
-        }
-
-        // ── Constructor ───────────────────────────────────────────────────
-        public MainViewModel()
-        {
-            _config         = ConfigurationManager.Load();
-            _showOnlyMapped = _config.ShowOnlyMapped;
-            _autoSync       = _config.AutoSync;
-            _icpDedEnabled  = _config.IcpDisplay.IcpDedEnabled;
-
-            _syncService = new SyncService();
-            _syncService.BmsConnectionChanged += OnBmsConnectionChanged;
-            _syncService.SyncStateChanged     += OnSyncStateChanged;
-            _syncService.LightStatesUpdated   += OnLightStatesUpdated;
-            _syncService.IcpConnectionChanged += OnIcpConnectionChanged;
-
-            // Relay live axis values back to the channel view-model so the slider updates.
-            _syncService.AxisBindings.BrightnessChanged += OnAxisBrightnessChanged;
-
-            StartSyncCommand         = new RelayCommand(StartSync,          () => CanStart);
-            StopSyncCommand          = new RelayCommand(StopSync,           () => CanStop);
-            SaveMappingCommand       = new RelayCommand(SaveMapping,        () => HasSelectedSignal);
-            DeleteMappingCommand     = new RelayCommand(DeleteMapping,      () => SelectedSignal?.IsMapped == true);
-            RemoveAllMappingsCommand = new RelayCommand(RemoveAllMappings,  () => _config.Mappings.Any());
-            RefreshDevicesCommand    = new RelayCommand(RefreshDevices);
-            SaveBrightnessCommand    = new RelayCommand(SaveBrightness,     () => SelectedBrightnessDevice != null);
-            ResetBrightnessCommand   = new RelayCommand(ResetBrightness,    () => SelectedBrightnessDevice != null);
-            TestSignalCommand        = new RelayCommand(ToggleTestSignal,   () => SelectedSignal?.IsMapped == true);
-            DiagnosticCommand        = new RelayCommand(RunDiagnostic,      () => SelectedSignal?.IsMapped == true && IsArduinoSelected);
-            TestAllCommand           = new RelayCommand(TestAllMappings,    () => _config.Mappings.Any(m => m.IsEnabled));
-
-            BrowseHeliosExeCommand     = new RelayCommand(BrowseHeliosExe);
-            BrowseHeliosProfileCommand = new RelayCommand(BrowseHeliosProfile);
-            SelectSignalCommand      = new RelayCommand<SignalViewModel>(s => SelectedSignal = s);
-            ToggleCategoryCommand    = new RelayCommand<CategoryGroup>(g => { if (g != null) g.IsExpanded = !g.IsExpanded; });
-            ExpandAllCommand         = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = true; });
-            CollapseAllCommand       = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = false; });
-
-            InitializeSignals();
-            RefreshDevices();
-
-            if (_config.AutoStartOnLaunch)
-                StartSync();
-        }
+        public void ExportConfig(string filePath) => ConfigurationManager.ExportTo(_config, filePath);
 
         // ── Initialisation ────────────────────────────────────────────────
 
@@ -1006,13 +919,21 @@ namespace BmsLightBridge.ViewModels
 
             foreach (var light in BmsLights.All)
             {
-                var vm      = new SignalViewModel(light);
-                var mapping = _config.Mappings.FirstOrDefault(m => m.BmsSignalName == light.Name);
+                var vm       = new SignalViewModel(light);
+                var mappings = _config.Mappings.Where(m => m.BmsSignalName == light.Name).ToList();
 
-                if (mapping != null)
+                foreach (var mapping in mappings)
                 {
-                    vm.Mapping  = mapping;
-                    vm.IsMapped = true;
+                    // Herstel WinWingLightName voor configs opgeslagen zonder naam (backwards compat)
+                    if (mapping.TargetDevice == DeviceType.WinWing
+                        && string.IsNullOrEmpty(mapping.WinWingLightName)
+                        && mapping.WinWingProductId != 0)
+                    {
+                        mapping.WinWingLightName = new WinWingLightEntry(
+                            mapping.WinWingLightIndex, (ushort)mapping.WinWingProductId).Name;
+                    }
+
+                    vm.MappingRows.Add(new MappingRowViewModel(mapping, row => DeleteMappingRow(vm, row)));
                 }
 
                 _allSignals.Add(vm);
@@ -1048,7 +969,7 @@ namespace BmsLightBridge.ViewModels
             {
                 var cat = new CategoryGroup(group.Key)
                 {
-                    IsExpanded = expandedState.TryGetValue(group.Key, out bool was) ? was : false
+                    IsExpanded = expandedState.GetValueOrDefault(group.Key, false)
                 };
                 foreach (var s in group)
                     cat.Signals.Add(s);
@@ -1071,19 +992,13 @@ namespace BmsLightBridge.ViewModels
             foreach (var device in WinWingService.EnumerateDevices())
                 AvailableWinWingDevices.Add(device);
 
-            // ── Joystick enumeration ──────────────────────────────────────
             AvailableJoysticks.Clear();
             foreach (var js in _syncService.AxisBindings.EnumerateJoysticks())
-                AvailableJoysticks.Add(new JoystickDeviceViewModel
-                {
-                    InstanceGuid = js.InstanceGuid,
-                    Name         = js.Name
-                });
+                AvailableJoysticks.Add(new JoystickDeviceViewModel { InstanceGuid = js.InstanceGuid, Name = js.Name });
 
             RebuildBrightnessChannels();
             ApplyBrightnessChannels(_config.BrightnessChannels);
 
-            // Restore joystick selection and push binding config to the service.
             foreach (var ch in BrightnessChannels)
                 ch.SyncJoystickSelection(AvailableJoysticks);
 
@@ -1096,18 +1011,15 @@ namespace BmsLightBridge.ViewModels
             OnPropertyChanged(nameof(HasWinWingDevices));
         }
 
+        // ── Brightness ────────────────────────────────────────────────────
+
         private void SaveBrightness()
         {
             if (SelectedBrightnessDevice == null) return;
-
-            foreach (var ch in SelectedBrightnessChannels)
-                ch.SaveBinding();
-
+            foreach (var ch in SelectedBrightnessChannels) ch.SaveBinding();
             SaveConfig();
             _syncService.AxisBindings.UpdateBindings(_config.BrightnessChannels);
-            ApplyBrightnessChannels(SelectedBrightnessChannels
-                .Where(ch => ch.ModeIsManual)
-                .Select(vm => vm.Model));
+            ApplyBrightnessChannels(SelectedBrightnessChannels.Where(ch => ch.ModeIsManual).Select(vm => vm.Model));
             OnPropertyChanged(nameof(BrightnessSummaryText));
             StatusMessage = $"Brightness saved and applied for {SelectedBrightnessDevice.Name}.";
         }
@@ -1115,10 +1027,7 @@ namespace BmsLightBridge.ViewModels
         private void ResetBrightness()
         {
             if (SelectedBrightnessDevice == null) return;
-
-            foreach (var ch in SelectedBrightnessChannels)
-                ch.ResetToManual();
-
+            foreach (var ch in SelectedBrightnessChannels) ch.ResetToManual();
             SaveConfig();
             _syncService.AxisBindings.UpdateBindings(_config.BrightnessChannels);
             ApplyBrightnessChannels(SelectedBrightnessChannels.Select(vm => vm.Model));
@@ -1126,10 +1035,6 @@ namespace BmsLightBridge.ViewModels
             StatusMessage = $"Brightness reset to manual 100% for {SelectedBrightnessDevice.Name}.";
         }
 
-        /// <summary>
-        /// Human-readable summary of the saved brightness settings for the selected device,
-        /// shown in the status block below the save/reset buttons.
-        /// </summary>
         public string BrightnessSummaryText
         {
             get
@@ -1137,19 +1042,17 @@ namespace BmsLightBridge.ViewModels
                 if (SelectedBrightnessDevice == null || !SelectedBrightnessChannels.Any())
                     return string.Empty;
 
-                var lines = SelectedBrightnessChannels.Select(ch =>
+                return string.Join("\n", SelectedBrightnessChannels.Select(ch =>
                 {
                     var m = ch.Model;
                     if (m.AxisBinding != null)
-                        return $"{ch.Label}: Axis — {m.AxisBinding.DeviceName}  {m.AxisBinding.Axis}" +
-                               (m.AxisBinding.Invert ? "  (inverted)" : "");
+                        return $"{ch.Label}: Axis — {m.AxisBinding.DeviceName}  {m.AxisBinding.Axis}"
+                               + (m.AxisBinding.Invert ? "  (inverted)" : "");
                     if (m.ButtonBinding != null)
-                        return $"{ch.Label}: Buttons — {m.ButtonBinding.DeviceName}" +
-                               $"  ↑{m.ButtonBinding.ButtonUp}  ↓{m.ButtonBinding.ButtonDown}";
+                        return $"{ch.Label}: Buttons — {m.ButtonBinding.DeviceName}"
+                               + $"  ↑{m.ButtonBinding.ButtonUp}  ↓{m.ButtonBinding.ButtonDown}";
                     return $"{ch.Label}: Manual — {(int)Math.Round(m.FixedBrightness / 2.55)}%";
-                });
-
-                return string.Join("\n", lines);
+                }));
             }
         }
 
@@ -1166,9 +1069,7 @@ namespace BmsLightBridge.ViewModels
 
             foreach (var device in AvailableWinWingDevices)
             {
-                var pids = WinWingLightEntry.GetGroupPids((ushort)device.ProductId).ToList();
-
-                foreach (var pid in pids)
+                foreach (var pid in WinWingLightEntry.GetGroupPids((ushort)device.ProductId))
                 {
                     if (!WinWingLightEntry.BrightnessSliderChannels.TryGetValue(pid, out var sliderChannels))
                         continue;
@@ -1181,19 +1082,15 @@ namespace BmsLightBridge.ViewModels
                         if (existing == null)
                         {
                             existing = new WinWingBrightnessChannel
-                            {
-                                ProductId       = pid,
-                                LightIndex      = lightIndex,
-                                FixedBrightness = 128
-                            };
+                                { ProductId = pid, LightIndex = lightIndex, FixedBrightness = 128 };
                             _config.BrightnessChannels.Add(existing);
                         }
 
-                        var capturedExisting = existing;
+                        var captured = existing;
                         var vm = new BrightnessChannelViewModel(existing, label, () =>
                         {
                             SaveConfig();
-                            _syncService.ApplyBrightnessNow(capturedExisting);
+                            _syncService.ApplyBrightnessNow(captured);
                         })
                         {
                             AxisBindingService = _syncService.AxisBindings,
@@ -1224,105 +1121,132 @@ namespace BmsLightBridge.ViewModels
 
         // ── Mapping management ────────────────────────────────────────────
 
-        private void LoadMappingToEditor(SignalMapping mapping)
-        {
-            EditorDeviceType = mapping.TargetDevice;
-            _editorComPort   = mapping.ArduinoComPort;
-            OnPropertyChanged(nameof(EditorComPort));
-            EditorPin        = mapping.ArduinoPin;
-            EditorLightIndex = mapping.WinWingLightIndex;
-            EditorLightEntry = new WinWingLightEntry(mapping.WinWingLightIndex, (ushort)mapping.WinWingProductId);
+        /// <summary>Builds the human-readable output description for the current editor state.</summary>
+        private string EditorOutputDescription() =>
+            EditorDeviceType == DeviceType.WinWing
+                ? $"{EditorWinWingDevice?.Name}  {EditorLightEntry?.Name ?? $"LED {EditorLightIndex}"}"
+                : $"Arduino {EditorComPort}  Pin {EditorPin}";
 
-            EditorWinWingDevice = AvailableWinWingDevices
-                .FirstOrDefault(d => d.ProductId == mapping.WinWingProductId);
-
-            LoadBoardSettings(mapping.ArduinoComPort);
-        }
-
-        private void SaveMapping()
+        /// <summary>Adds a new mapping entry for the selected signal from the current editor values.</summary>
+        private void AddMapping()
         {
             if (SelectedSignal == null) return;
 
-            var mapping = SelectedSignal.Mapping ?? new SignalMapping
-            {
-                BmsSignalName = SelectedSignal.Light.Name
-            };
+            // ── Duplicaat-check ───────────────────────────────────────────
+            SignalMapping? existingConflict = null;
 
-            mapping.TargetDevice = EditorDeviceType;
+            if (EditorDeviceType == DeviceType.WinWing && EditorWinWingDevice != null)
+            {
+                existingConflict = _config.Mappings.FirstOrDefault(m =>
+                    m.TargetDevice      == DeviceType.WinWing &&
+                    m.WinWingProductId  == EditorWinWingDevice.ProductId &&
+                    m.WinWingLightIndex == EditorLightIndex);
+            }
+            else if (EditorDeviceType == DeviceType.Arduino && !string.IsNullOrEmpty(EditorComPort))
+            {
+                existingConflict = _config.Mappings.FirstOrDefault(m =>
+                    m.TargetDevice   == DeviceType.Arduino &&
+                    m.ArduinoComPort == EditorComPort &&
+                    m.ArduinoPin     == EditorPin);
+            }
+
+            if (existingConflict != null)
+            {
+                string outputDesc = EditorOutputDescription();
+
+                if (existingConflict.BmsSignalName == SelectedSignal.Light.Name)
+                {
+                    MessageBox.Show(
+                        $"This output is already mapped to this signal:\n\n  {outputDesc}",
+                        "Duplicate Mapping", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                var result = MessageBox.Show(
+                    $"This output is already mapped to:\n\n" +
+                    $"  Signal:  {existingConflict.BmsSignalName}\n" +
+                    $"  Output:  {outputDesc}\n\n" +
+                    $"Do you want to move this output to '{SelectedSignal.Light.Name}'?\n" +
+                    $"The existing mapping will be removed.",
+                    "Output Already Mapped", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+                if (result != MessageBoxResult.Yes) return;
+
+                // Verwijder de conflicterende mapping uit config én UI
+                _config.Mappings.Remove(existingConflict);
+                var conflictSignal = _allSignals.FirstOrDefault(s => s.Light.Name == existingConflict.BmsSignalName);
+                var conflictRow    = conflictSignal?.MappingRows.FirstOrDefault(r => r.Mapping == existingConflict);
+                if (conflictRow != null) conflictSignal!.MappingRows.Remove(conflictRow);
+            }
+
+            // ── Mapping aanmaken ──────────────────────────────────────────
+            var mapping = new SignalMapping { BmsSignalName = SelectedSignal.Light.Name, TargetDevice = EditorDeviceType };
 
             if (EditorDeviceType == DeviceType.Arduino)
             {
-                mapping.ArduinoComPort    = EditorComPort;
-                mapping.ArduinoPin        = EditorPin;
-                mapping.WinWingDeviceName = "";
-                mapping.WinWingProductId  = 0;
-                mapping.WinWingLightIndex = 0;
+                mapping.ArduinoComPort = EditorComPort;
+                mapping.ArduinoPin     = EditorPin;
             }
             else
             {
                 mapping.WinWingLightIndex = EditorLightIndex;
+                mapping.WinWingLightName  = EditorLightEntry?.Name ?? $"LED {EditorLightIndex}";
                 if (EditorWinWingDevice != null)
                 {
                     mapping.WinWingDeviceName = EditorWinWingDevice.Name;
                     mapping.WinWingProductId  = EditorWinWingDevice.ProductId;
                 }
-                mapping.ArduinoComPort = "";
-                mapping.ArduinoPin     = 0;
             }
 
-            if (SelectedSignal.Mapping == null)
-                _config.Mappings.Add(mapping);
-
-            SelectedSignal.Mapping  = mapping;
-            SelectedSignal.IsMapped = true;
-            OnPropertyChanged(nameof(CurrentMappingText));
+            _config.Mappings.Add(mapping);
+            SelectedSignal.MappingRows.Add(new MappingRowViewModel(mapping, row => DeleteMappingRow(SelectedSignal, row)));
 
             SaveConfig();
             OnPropertyChanged(nameof(TotalMappings));
             OnPropertyChanged(nameof(MappedSignals));
-
-            StatusMessage = $"Mapping saved: {SelectedSignal.Light.Name} → " +
-                $"{(EditorDeviceType == DeviceType.Arduino ? $"Arduino {EditorComPort} Pin {EditorPin}" : $"WinWing LED {EditorLightIndex}")}";
+            StatusMessage = $"Mapping added: {SelectedSignal.Light.Name} → {EditorOutputDescription()}";
         }
 
-        private void DeleteMapping()
+        /// <summary>Deletes one mapping row from a signal (called from the row's Delete button).</summary>
+        private void DeleteMappingRow(SignalViewModel signal, MappingRowViewModel row)
         {
-            if (SelectedSignal?.Mapping == null) return;
+            _config.Mappings.Remove(row.Mapping);
+            signal.MappingRows.Remove(row);
+            SaveConfig();
+            OnPropertyChanged(nameof(TotalMappings));
+            OnPropertyChanged(nameof(MappedSignals));
+            StatusMessage = $"Mapping removed: {signal.Light.Name}";
+        }
 
-            _config.Mappings.Remove(SelectedSignal.Mapping);
-            SelectedSignal.Mapping  = null;
-            SelectedSignal.IsMapped = false;
-            OnPropertyChanged(nameof(CurrentMappingText));
+        /// <summary>Deletes ALL mappings for the selected signal.</summary>
+        private void DeleteAllMappings()
+        {
+            if (SelectedSignal == null) return;
+
+            foreach (var m in SelectedSignal.MappingRows.Select(r => r.Mapping).ToList())
+                _config.Mappings.Remove(m);
+            SelectedSignal.MappingRows.Clear();
 
             SaveConfig();
             OnPropertyChanged(nameof(TotalMappings));
             OnPropertyChanged(nameof(MappedSignals));
-            StatusMessage = $"Mapping removed: {SelectedSignal.Light.Name}";
+            StatusMessage = $"All mappings removed: {SelectedSignal.Light.Name}";
         }
 
         private void RemoveAllMappings()
         {
-            int count  = _config.Mappings.Count;
-            var result = MessageBox.Show(
-                $"Are you sure you want to remove all {count} mapping(s)?\nThis cannot be undone.",
-                "Remove All Mappings",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-
-            if (result != MessageBoxResult.Yes) return;
+            int count = _config.Mappings.Count;
+            if (MessageBox.Show(
+                    $"Are you sure you want to remove all {count} mapping(s)?\nThis cannot be undone.",
+                    "Remove All Mappings", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                != MessageBoxResult.Yes) return;
 
             _config.Mappings.Clear();
-
-            foreach (var signal in _allSignals)
-            {
-                signal.Mapping  = null;
-                signal.IsMapped = false;
-            }
+            foreach (var signal in _allSignals) signal.MappingRows.Clear();
 
             SaveConfig();
             OnPropertyChanged(nameof(TotalMappings));
             OnPropertyChanged(nameof(MappedSignals));
-            OnPropertyChanged(nameof(CurrentMappingText));
             StatusMessage = "All mappings removed.";
         }
 
@@ -1336,40 +1260,28 @@ namespace BmsLightBridge.ViewModels
                 Filter          = "Control Center.exe|Control Center.exe|Executables (*.exe)|*.exe",
                 CheckFileExists = true
             };
-
             string defaultDir = @"C:\Program Files\Helios Virtual Cockpit\Helios";
-            if (Directory.Exists(defaultDir))
-                dlg.InitialDirectory = defaultDir;
-
-            if (dlg.ShowDialog() == true)
-                HeliosControlCenterPath = dlg.FileName;
+            if (Directory.Exists(defaultDir)) dlg.InitialDirectory = defaultDir;
+            if (dlg.ShowDialog() == true) HeliosControlCenterPath = dlg.FileName;
         }
 
         private void BrowseHeliosProfile()
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title            = "Select Helios Profile",
-                Filter           = "Helios Profile (*.hpf)|*.hpf",
-                CheckFileExists  = true
+                Title           = "Select Helios Profile",
+                Filter          = "Helios Profile (*.hpf)|*.hpf",
+                CheckFileExists = true
             };
-
-            // Pre-navigate to the default Helios profiles folder if it exists.
             string defaultDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Helios", "Profiles");
-            if (Directory.Exists(defaultDir))
-                dlg.InitialDirectory = defaultDir;
-
-            if (dlg.ShowDialog() == true)
-                HeliosProfilePath = dlg.FileName;
+            if (Directory.Exists(defaultDir)) dlg.InitialDirectory = defaultDir;
+            if (dlg.ShowDialog() == true) HeliosProfilePath = dlg.FileName;
         }
 
         private void SaveConfig()
         {
-            try
-            {
-                ConfigurationManager.Save(_config);
-            }
+            try   { ConfigurationManager.Save(_config); }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to save configuration:\n{ex.Message}",
@@ -1379,15 +1291,6 @@ namespace BmsLightBridge.ViewModels
 
         // ── Event handlers ────────────────────────────────────────────────
 
-        private void OnIcpConnectionChanged(object? sender, bool connected)
-        {
-            OnPropertyChanged(nameof(IcpIsConnected));
-        }
-
-        /// <summary>
-        /// Called from the AxisBindingService poll thread (background). Routes the live brightness
-        /// value to the matching BrightnessChannelViewModel so the slider updates in the UI.
-        /// </summary>
         private void OnAxisBrightnessChanged(int productId, int lightIndex, byte brightness)
         {
             System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
@@ -1423,10 +1326,7 @@ namespace BmsLightBridge.ViewModels
             }
         }
 
-        private void OnSyncStateChanged(object? sender, bool syncing)
-        {
-            IsSyncing = syncing;
-        }
+        private void OnSyncStateChanged(object? sender, bool syncing) => IsSyncing = syncing;
 
         private void OnLightStatesUpdated(object? sender, Dictionary<string, bool> states)
         {
@@ -1435,7 +1335,6 @@ namespace BmsLightBridge.ViewModels
                 if (states.TryGetValue(signal.Light.Name, out bool isOn))
                     signal.IsOn = isOn;
             }
-
             OnPropertyChanged(nameof(ActiveSignals));
         }
 
@@ -1443,11 +1342,12 @@ namespace BmsLightBridge.ViewModels
 
         private void RunDiagnostic()
         {
-            if (SelectedSignal?.Mapping == null) return;
+            var mapping = SelectedSignal?.MappingRows
+                .Select(r => r.Mapping)
+                .FirstOrDefault(m => m.TargetDevice == DeviceType.Arduino);
+            if (mapping == null) return;
 
-            var mapping = SelectedSignal.Mapping;
-            var dev     = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == mapping.ArduinoComPort);
-
+            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == mapping.ArduinoComPort);
             StatusMessage = $"Running diagnostic on {mapping.ArduinoComPort}...";
 
             System.Threading.Tasks.Task.Run(() =>
@@ -1463,8 +1363,7 @@ namespace BmsLightBridge.ViewModels
 
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    MessageBox.Show(log, "Arduino Diagnostic Result",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(log, "Arduino Diagnostic Result", MessageBoxButton.OK, MessageBoxImage.Information);
                     StatusMessage = "Diagnostic complete.";
                 });
             });
@@ -1478,27 +1377,30 @@ namespace BmsLightBridge.ViewModels
             get => _isTestingAll;
             set { SetProperty(ref _isTestingAll, value); OnPropertyChanged(nameof(TestAllButtonLabel)); OnPropertyChanged(nameof(CanStopAllTests)); }
         }
+
         public string TestAllButtonLabel => IsTestingAll ? "Stop All Tests" : "Test All Mappings";
 
         private bool _arduinoTestReady;
         public bool CanStopAllTests => IsTestingAll && _arduinoTestReady;
 
+        /// <summary>Returns the set of enabled signal names as an on/off state dictionary.</summary>
+        private Dictionary<string, bool> BuildTestStates(bool on) =>
+            _config.Mappings
+                .Where(m => m.IsEnabled)
+                .Select(m => m.BmsSignalName)
+                .Distinct()
+                .ToDictionary(name => name, _ => on);
+
         private void TestAllMappings()
         {
             if (_isTestingAll)
             {
-                IsTestingAll    = false;
+                IsTestingAll      = false;
                 _arduinoTestReady = false;
                 OnPropertyChanged(nameof(CanStopAllTests));
 
-                var offStates = _config.Mappings
-                    .Where(m => m.IsEnabled)
-                    .ToDictionary(m => m.BmsSignalName, _ => false);
-                _syncService.FireTestOutput(_config, offStates);
-
-                foreach (var s in _allSignals.Where(s => s.IsMapped))
-                    s.IsOn = false;
-
+                _syncService.FireTestOutput(_config, BuildTestStates(false));
+                foreach (var s in _allSignals.Where(s => s.IsMapped)) s.IsOn = false;
                 OnPropertyChanged(nameof(ActiveSignals));
                 _syncService.ArduinoOutput.Disconnect();
                 StatusMessage = "All test lights turned off. COM ports released.";
@@ -1509,79 +1411,71 @@ namespace BmsLightBridge.ViewModels
             _arduinoTestReady = false;
             OnPropertyChanged(nameof(CanStopAllTests));
 
-            var onStates = _config.Mappings
-                .Where(m => m.IsEnabled)
-                .ToDictionary(m => m.BmsSignalName, _ => true);
+            var onStates       = BuildTestStates(true);
+            var arduinoGroups  = SyncService.BuildArduinoGroups(_config);
 
-            foreach (var s in _allSignals.Where(s => s.IsMapped))
-                s.IsOn = true;
+            foreach (var s in _allSignals.Where(s => s.IsMapped)) s.IsOn = true;
             OnPropertyChanged(nameof(ActiveSignals));
 
-            var arduinoGroups = SyncService.BuildArduinoGroups(_config);
+            _syncService.FireTestOutput(_config, onStates);
 
-            bool hasArduino = arduinoGroups.Count > 0;
-
-            if (!hasArduino)
+            if (!arduinoGroups.Any())
             {
-                // No Arduino boards — WinWing only, can stop immediately.
-                _syncService.FireTestOutput(_config, onStates);
                 _arduinoTestReady = true;
                 OnPropertyChanged(nameof(CanStopAllTests));
                 StatusMessage = $"Testing {onStates.Count} mapped signal(s) — all lights ON. Press again to turn off.";
+                return;
             }
-            else
+
+            StatusMessage = $"Testing {onStates.Count} mapped signal(s) — waiting for Arduino board(s) to initialise...";
+
+            System.Threading.Tasks.Task.Run(() =>
             {
-                StatusMessage = $"Testing {onStates.Count} mapped signal(s) — waiting for Arduino board(s) to initialise...";
+                System.Threading.Tasks.Parallel.ForEach(arduinoGroups, group =>
+                    _syncService.ArduinoOutput.Connect(
+                        group.ComPort, group.BaudRate, group.ResetDelayMs, group.DtrEnable, group.Mappings));
 
-                // WinWing: fire immediately.
-                _syncService.FireTestOutput(_config, onStates);
-
-                System.Threading.Tasks.Task.Run(() =>
+                System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
-                    System.Threading.Tasks.Parallel.ForEach(arduinoGroups, group =>
-                        _syncService.ArduinoOutput.Connect(
-                            group.ComPort, group.BaudRate, group.ResetDelayMs, group.DtrEnable, group.Mappings));
-
-                    System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
-                    {
-                        _syncService.FireTestOutput(_config, onStates);
-
-                        _arduinoTestReady = true;
-                        OnPropertyChanged(nameof(CanStopAllTests));
-                        StatusMessage = $"Testing {onStates.Count} mapped signal(s) — all lights ON. Press again to turn off.";
-                    });
+                    _syncService.FireTestOutput(_config, onStates);
+                    _arduinoTestReady = true;
+                    OnPropertyChanged(nameof(CanStopAllTests));
+                    StatusMessage = $"Testing {onStates.Count} mapped signal(s) — all lights ON. Press again to turn off.";
                 });
-            }
+            });
         }
 
         // ── Test signal ───────────────────────────────────────────────────
 
         private void ToggleTestSignal()
         {
-            if (SelectedSignal == null || SelectedSignal.Mapping == null) return;
+            if (SelectedSignal == null || !SelectedSignal.IsMapped) return;
 
-            IsTestMode = !IsTestMode;
+            IsTestMode          = !IsTestMode;
             SelectedSignal.IsOn = IsTestMode;
             OnPropertyChanged(nameof(ActiveSignals));
 
-            var testStates = new Dictionary<string, bool>
-            {
-                { SelectedSignal.Light.Name, IsTestMode }
-            };
+            var testStates = new Dictionary<string, bool> { { SelectedSignal.Light.Name, IsTestMode } };
 
-            if (SelectedSignal.Mapping.TargetDevice == DeviceType.Arduino)
-            {
-                var comPort  = SelectedSignal.Mapping.ArduinoComPort;
-                var mappings = _config.Mappings.ToList();
-                var cfgSnap  = _config;
-                var dev      = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == comPort);
+            var arduinoMappings = SelectedSignal.MappingRows
+                .Select(r => r.Mapping).Where(m => m.TargetDevice == DeviceType.Arduino).ToList();
+            var winwingMappings = SelectedSignal.MappingRows
+                .Select(r => r.Mapping).Where(m => m.TargetDevice == DeviceType.WinWing).ToList();
 
+            if (arduinoMappings.Any())
+            {
                 if (IsTestMode)
                 {
+                    var allMappings = _config.Mappings.ToList();
+                    var cfgSnap     = _config;
                     System.Threading.Tasks.Task.Run(() =>
                     {
-                        _syncService.ArduinoOutput.Connect(
-                            comPort, dev?.BaudRate ?? 115200, dev?.ResetDelayMs ?? 2000, dev?.DtrEnable ?? true, mappings);
+                        foreach (var grp in arduinoMappings.GroupBy(m => m.ArduinoComPort))
+                        {
+                            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == grp.Key);
+                            _syncService.ArduinoOutput.Connect(
+                                grp.Key, dev?.BaudRate ?? 115200, dev?.ResetDelayMs ?? 2000, dev?.DtrEnable ?? true, allMappings);
+                        }
                         System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
                             _syncService.FireTestOutput(cfgSnap, testStates));
                     });
@@ -1589,28 +1483,31 @@ namespace BmsLightBridge.ViewModels
                 else
                 {
                     _syncService.FireTestOutput(_config, testStates);
-                    _syncService.ArduinoOutput.Disconnect(comPort);
+                    foreach (var port in arduinoMappings.Select(m => m.ArduinoComPort).Distinct())
+                        _syncService.ArduinoOutput.Disconnect(port);
                 }
             }
-            else if (SelectedSignal.Mapping.TargetDevice == DeviceType.WinWing)
+
+            if (winwingMappings.Any())
             {
-                _syncService.WinWingOutput.Connect(SelectedSignal.Mapping.WinWingProductId);
+                foreach (var wm in winwingMappings)
+                    _syncService.WinWingOutput.Connect(wm.WinWingProductId);
                 _syncService.FireTestOutput(_config, testStates);
             }
 
             StatusMessage = IsTestMode
-                ? $"TEST ON: '{SelectedSignal.Light.Name}' — output sent to device."
-                : $"TEST OFF: '{SelectedSignal.Light.Name}' — COM port released.";
+                ? $"TEST ON: '{SelectedSignal.Light.Name}' — output sent to device(s)."
+                : $"TEST OFF: '{SelectedSignal.Light.Name}' — COM port(s) released.";
         }
 
         private void CancelActiveTest()
         {
             if (!IsTestMode) return;
 
-            if (SelectedSignal?.Mapping != null)
+            if (SelectedSignal?.IsMapped == true)
             {
-                var offStates = new Dictionary<string, bool> { { SelectedSignal.Light.Name, false } };
-                _syncService.FireTestOutput(_config, offStates);
+                _syncService.FireTestOutput(_config,
+                    new Dictionary<string, bool> { { SelectedSignal.Light.Name, false } });
                 SelectedSignal.IsOn = false;
             }
 

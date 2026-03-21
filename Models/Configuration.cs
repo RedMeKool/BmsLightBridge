@@ -24,6 +24,7 @@ namespace BmsLightBridge.Models
         public string WinWingDeviceName { get; set; } = "";
         public int    WinWingProductId  { get; set; } = 0;
         public int    WinWingLightIndex { get; set; } = 0;
+        public string WinWingLightName  { get; set; } = "";
 
         public bool IsEnabled { get; set; } = true;
     }
