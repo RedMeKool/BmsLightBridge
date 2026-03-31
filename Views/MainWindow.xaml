@@ -1983,23 +1983,24 @@
                                                               FontSize="11" VerticalAlignment="Center"/>
                                                 </Grid>
 
-                                                <!-- Row 3: Sensitivity -->
+                                                <!-- Row 3: Steps -->
                                                 <Grid Margin="0,0,0,8">
                                                     <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="70"/>
+                                                        <ColumnDefinition Width="Auto"/>
                                                         <ColumnDefinition Width="8"/>
                                                         <ColumnDefinition Width="*"/>
                                                         <ColumnDefinition Width="8"/>
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0" Text="Sensitivity"
+                                                    <TextBlock Grid.Column="0" Text="Steps"
                                                                Style="{StaticResource LabelStyle}" FontSize="10"
                                                                VerticalAlignment="Center"/>
-                                                    <Slider Grid.Column="2" Value="{Binding Sensitivity, Mode=TwoWay}"
-                                                            Minimum="1" Maximum="10" TickFrequency="1"
-                                                            IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                                                    <Slider Grid.Column="2" Value="{Binding Steps, Mode=TwoWay}"
+                                                            Minimum="1" Maximum="50" TickFrequency="1"
+                                                            IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                                                            ToolTip="Number of key presses for a full axis sweep (min to max). Example: 10 means the axis fires exactly 10 times across its full range."/>
                                                     <TextBlock Grid.Column="4"
-                                                               Text="{Binding Sensitivity}"
+                                                               Text="{Binding Steps}"
                                                                Style="{StaticResource LabelStyle}" FontSize="10"
                                                                VerticalAlignment="Center" MinWidth="20"
                                                                TextAlignment="Right"/>

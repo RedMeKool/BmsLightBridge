@@ -30,22 +30,16 @@ namespace BmsLightBridge.ViewModels
         public JoystickAxis SelectedAxis { get => _model.Axis;   set { _model.Axis   = value; OnPropertyChanged(); _onChanged(); } }
         public bool AxisInvert           { get => _model.Invert; set { _model.Invert = value; OnPropertyChanged(); _onChanged(); } }
 
-        public double DeadZone
-        {
-            get => _model.DeadZone;
-            set { _model.DeadZone = Math.Clamp(value, 0.05, 0.50); OnPropertyChanged(); _onChanged(); }
-        }
-
         public int RepeatDelayMs
         {
             get => _model.RepeatDelayMs;
             set { _model.RepeatDelayMs = Math.Clamp(value, 100, 2000); OnPropertyChanged(); _onChanged(); }
         }
 
-        public int Sensitivity
+        public int Steps
         {
-            get => _model.Sensitivity;
-            set { _model.Sensitivity = Math.Clamp(value, 1, 10); OnPropertyChanged(); _onChanged(); }
+            get => _model.Steps;
+            set { _model.Steps = Math.Clamp(value, 1, 50); OnPropertyChanged(); _onChanged(); }
         }
 
         public string KeyUpLabel

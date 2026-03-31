@@ -18,9 +18,13 @@ namespace BmsLightBridge.Models
         public bool    KeyDownCtrl    { get; set; } = false;
         public bool    KeyDownShift   { get; set; } = false;
         public bool    KeyDownAlt     { get; set; } = false;
-        public double  DeadZone       { get; set; } = 0.25;
         public int     RepeatDelayMs  { get; set; } = 400;
-        public int     Sensitivity    { get; set; } = 5;  // 1=grof (weinig stappen) tot 10=gevoelig (veel stappen)
+        /// <summary>
+        /// Number of key presses fired when the axis moves from minimum to maximum (full range).
+        /// The step threshold is calculated as 65535 / Steps.
+        /// Range 1–50, default 10.
+        /// </summary>
+        public int     Steps          { get; set; } = 10;
         public bool    IsEnabled      { get; set; } = true;
     }
 }

@@ -15,8 +15,7 @@ namespace BmsLightBridge.Services
 
         private List<AxisToKeyBinding>             _activeBindings = new();
         private readonly object                    _bindLock       = new();
-        private readonly Dictionary<Guid, int>     _lastRaw        = new();
-        private readonly Dictionary<Guid, DateTime> _lastFireTime   = new();
+        private readonly Dictionary<Guid, int> _lastRaw = new();
 
         private System.Threading.Timer? _pollTimer;
 
@@ -90,8 +89,6 @@ namespace BmsLightBridge.Services
 
             if (snapshot.Count == 0) return;
 
-            var now = DateTime.UtcNow;
-
             foreach (var binding in snapshot)
             {
                 int? rawNullable = _axisBindingService.GetAxisValue(
@@ -106,7 +103,7 @@ namespace BmsLightBridge.Services
                 int raw = rawNullable.Value;
                 if (binding.Invert) raw = 65535 - raw;
 
-                // Eerste keer: sla op als baseline, vuur niets
+                // First time: store as baseline, fire nothing
                 if (!_lastRaw.TryGetValue(binding.Id, out int prevRaw))
                 {
                     _lastRaw[binding.Id] = raw;
@@ -114,30 +111,32 @@ namespace BmsLightBridge.Services
                 }
 
                 int delta = raw - prevRaw;
-                // Sensitivity 1-10: 1=coarse (large delta needed), 10=sensitive (small delta needed)
-                int stepDelta = 6000 - (Math.Clamp(binding.Sensitivity, 1, 10) - 1) * 600; // 6000..600
 
-                if (Math.Abs(delta) < stepDelta) continue;
+                // stepThreshold = full axis range / Steps
+                // e.g. Steps=10 → fire every 6553 units → exactly 10 presses for full travel
+                int steps         = Math.Clamp(binding.Steps, 1, 50);
+                int stepThreshold = 65535 / steps;
 
-                // Dead zone: ignore movement near the physical centre of the axis
-                int deadZoneUnits = (int)(binding.DeadZone * 65535);
-                if (Math.Abs(raw - 32767) < deadZoneUnits) continue;
+                if (Math.Abs(delta) < stepThreshold) continue;
 
-                // Respect per-binding repeat delay
-                double elapsedMs = _lastFireTime.TryGetValue(binding.Id, out var last)
-                    ? (now - last).TotalMilliseconds : double.MaxValue;
+                // Calculate how many full steps the delta spans.
+                // Firing multiple presses per poll catches up when the knob is turned fast.
+                int presses  = Math.Abs(delta) / stepThreshold;
+                bool goingUp = delta > 0;
 
-                if (elapsedMs < binding.RepeatDelayMs) continue;
+                int vk    = goingUp ? binding.KeyUp    : binding.KeyDown;
+                bool ctrl  = goingUp ? binding.KeyUpCtrl  : binding.KeyDownCtrl;
+                bool shift = goingUp ? binding.KeyUpShift : binding.KeyDownShift;
+                bool alt   = goingUp ? binding.KeyUpAlt   : binding.KeyDownAlt;
 
-                int vk = delta > 0 ? binding.KeyUp : binding.KeyDown;
-                bool ctrl  = delta > 0 ? binding.KeyUpCtrl  : binding.KeyDownCtrl;
-                bool shift = delta > 0 ? binding.KeyUpShift : binding.KeyDownShift;
-                bool alt   = delta > 0 ? binding.KeyUpAlt   : binding.KeyDownAlt;
                 if (vk == 0) { _lastRaw[binding.Id] = raw; continue; }
 
-                _lastRaw[binding.Id]  = raw;
-                _lastFireTime[binding.Id] = now;
-                FireKey((ushort)vk, ctrl, shift, alt);
+                // Advance prevRaw by exactly the steps fired, keeping the remainder
+                // for the next poll so fractional movement is never lost.
+                _lastRaw[binding.Id] = prevRaw + presses * stepThreshold * (goingUp ? 1 : -1);
+
+                for (int i = 0; i < presses; i++)
+                    FireKey((ushort)vk, ctrl, shift, alt);
             }
         }
 
