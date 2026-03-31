@@ -39,6 +39,7 @@ namespace BmsLightBridge.Services
 
         // Open joystick handles: instanceGuid → Joystick
         private readonly Dictionary<string, Joystick> _openDevices = new();
+        private readonly Dictionary<(string guid, int axis), int> _axisCache = new();
         private readonly object _devLock = new();
 
         private System.Threading.Timer? _pollTimer;
@@ -198,7 +199,24 @@ namespace BmsLightBridge.Services
                 var state = GetDeviceState(ab.DeviceInstanceGuid, joystick);
                 if (state == null) continue;
 
-                int raw    = GetAxisValue(state, ab.Axis);
+                int raw = GetAxisValue(state, ab.Axis);
+
+                // Als joystick nog niet actief is (ESP32 geeft 32767), gebruik laatste bekende waarde
+                if (raw == 32767 && ab.LastRawValue >= 0)
+                    raw = ab.LastRawValue;
+                else if (raw != 32767)
+                    ab.LastRawValue = raw; // Opslaan voor volgende keer
+
+                // Cache alle assen van dit device zodat AxisToKeyService ze kan lezen
+                lock (_devLock)
+                {
+                    _axisCache[(ab.DeviceInstanceGuid, 0)] = state.X;
+                    _axisCache[(ab.DeviceInstanceGuid, 1)] = state.Y;
+                    _axisCache[(ab.DeviceInstanceGuid, 2)] = state.Z;
+                    _axisCache[(ab.DeviceInstanceGuid, 3)] = state.RotationX;
+                    _axisCache[(ab.DeviceInstanceGuid, 4)] = state.RotationY;
+                    _axisCache[(ab.DeviceInstanceGuid, 5)] = state.RotationZ;
+                }
                 int mapped = Math.Clamp(raw, 0, 65535) * 255 / 65535;
                 if (ab.Invert) mapped = 255 - mapped;
                 FireIfChanged(ch, (byte)mapped);
@@ -496,6 +514,15 @@ namespace BmsLightBridge.Services
                             CooperativeLevel.Background | CooperativeLevel.NonExclusive);
 
                         joystick.Acquire();
+
+                        // Wake-up: paar polls zodat het device direct actuele waarden stuurt
+                        for (int w = 0; w < 10; w++)
+                        {
+                            try { joystick.Poll(); joystick.GetCurrentState(); }
+                            catch { }
+                            System.Threading.Thread.Sleep(20);
+                        }
+
                         _openDevices[guidStr] = joystick;
                     }
                     catch { /* device not available */ }
@@ -524,6 +551,49 @@ namespace BmsLightBridge.Services
             _directInput = null;
 
             GC.SuppressFinalize(this);
+        }
+
+        // ── Publieke hulpmethodes voor AxisToKeyService ───────────────────
+
+        public int? GetAxisValue(string deviceGuid, JoystickAxis axis)
+        {
+            // Gebruik gecachete waarde uit de poll loop — die zijn altijd actueel
+            lock (_devLock)
+            {
+                if (_axisCache.TryGetValue((deviceGuid, (int)axis), out int cached))
+                    return cached;
+            }
+
+            // Nog geen cache — probeer direct te lezen
+            Joystick? js;
+            lock (_devLock)
+                if (!_openDevices.TryGetValue(deviceGuid, out js)) return null;
+            try
+            {
+                js.Poll();
+                var state = js.GetCurrentState();
+                int val   = GetAxisValue(state, axis);
+                lock (_devLock) _axisCache[(deviceGuid, (int)axis)] = val;
+                return val;
+            }
+            catch { return null; }
+        }
+
+        public void EnsureDeviceOpen(string deviceGuid)
+        {
+            lock (_devLock)
+                if (_openDevices.ContainsKey(deviceGuid)) return;
+
+            if (!_dinputAvailable || _directInput == null) return;
+            try
+            {
+                var js = new Joystick(_directInput, new Guid(deviceGuid));
+                js.SetCooperativeLevel(IntPtr.Zero,
+                    CooperativeLevel.Background | CooperativeLevel.NonExclusive);
+                js.Acquire();
+                lock (_devLock) _openDevices[deviceGuid] = js;
+            }
+            catch { }
         }
     }
 }

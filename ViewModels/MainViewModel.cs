@@ -472,7 +472,8 @@ namespace BmsLightBridge.ViewModels
     public class MainViewModel : BaseViewModel, IDisposable
     {
         // ── Services ──────────────────────────────────────────────────────
-        private readonly SyncService _syncService;
+        private readonly SyncService      _syncService;
+        private AxisToKeyService _axisToKeyService = null!;
 
         // ── Configuration ─────────────────────────────────────────────────
         private AppConfiguration _config;
@@ -650,6 +651,7 @@ namespace BmsLightBridge.ViewModels
         private readonly Dictionary<(int pid, int idx), BrightnessChannelViewModel> _brightnessLookup = new();
         public ObservableCollection<BrightnessChannelViewModel> SelectedBrightnessChannels { get; } = new();
         public ObservableCollection<JoystickDeviceViewModel>    AvailableJoysticks         { get; } = new();
+        public AxisToKeyTabViewModel AxisToKeyTab { get; private set; } = null!;
 
         private Models.WinWingDevice? _selectedBrightnessDevice;
         public Models.WinWingDevice? SelectedBrightnessDevice
@@ -828,6 +830,7 @@ namespace BmsLightBridge.ViewModels
             _icpDedEnabled  = _config.IcpDisplay.IcpDedEnabled;
 
             _syncService = new SyncService();
+            _axisToKeyService = new AxisToKeyService(_syncService.AxisBindings);
             _syncService.BmsConnectionChanged += OnBmsConnectionChanged;
             _syncService.SyncStateChanged     += OnSyncStateChanged;
             _syncService.LightStatesUpdated   += OnLightStatesUpdated;
@@ -852,6 +855,11 @@ namespace BmsLightBridge.ViewModels
             ToggleCategoryCommand      = new RelayCommand<CategoryGroup>(g => { if (g != null) g.IsExpanded = !g.IsExpanded; });
             ExpandAllCommand           = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = true; });
             CollapseAllCommand         = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = false; });
+
+            _axisToKeyService.Start();
+            AxisToKeyTab = new AxisToKeyTabViewModel(
+                _config, _axisToKeyService, SaveConfig,
+                a => System.Windows.Application.Current?.Dispatcher.InvokeAsync(a));
 
             InitializeSignals();
             RefreshDevices();
@@ -1003,6 +1011,9 @@ namespace BmsLightBridge.ViewModels
                 ch.SyncJoystickSelection(AvailableJoysticks);
 
             _syncService.AxisBindings.UpdateBindings(_config.BrightnessChannels);
+
+            AxisToKeyTab?.RefreshJoysticks(_axisToKeyService.EnumerateJoysticks());
+            AxisToKeyTab?.PushToService();
 
             if (SelectedBrightnessDevice == null || !AvailableWinWingDevices.Contains(SelectedBrightnessDevice))
                 SelectedBrightnessDevice = AvailableWinWingDevices.FirstOrDefault();
@@ -1520,6 +1531,7 @@ namespace BmsLightBridge.ViewModels
         public void Dispose()
         {
             if (IsTestMode) CancelActiveTest();
+            _axisToKeyService.Dispose();
             _syncService.Dispose();
             GC.SuppressFinalize(this);
         }

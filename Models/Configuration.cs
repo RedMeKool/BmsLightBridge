@@ -102,6 +102,9 @@ namespace BmsLightBridge.Models
 
         /// <summary>Invert the axis value (so max physical = min brightness and vice versa).</summary>
         public bool Invert { get; set; } = false;
+
+        /// <summary>Last known raw value — used at startup when the joystick is not yet active.</summary>
+        public int LastRawValue { get; set; } = -1;
     }
 
     public enum JoystickAxis
@@ -117,8 +120,6 @@ namespace BmsLightBridge.Models
     /// </summary>
     public static class WinWingDeviceGroups
     {
-        // TODO: populate Groups if/when multi-interface device grouping is needed.
-        //       Currently empty — all devices are treated as individual units.
         /// <summary>Maps a display name to the list of product IDs that form the group.</summary>
         public static readonly Dictionary<string, List<ushort>> Groups = new();
 
@@ -181,8 +182,6 @@ namespace BmsLightBridge.Models
     /// <summary>Root configuration — serialized to config.json in the application folder.</summary>
     public class AppConfiguration
     {
-        // TODO: increment ConfigVersion and add migration logic in ConfigurationManager.Load()
-        //       if breaking changes are made to the schema in the future.
         public int    ConfigVersion      { get; set; } = 1;
         public int    PollingIntervalMs  { get; set; } = 50;
         public bool   AutoStartOnLaunch  { get; set; } = false;
@@ -193,7 +192,8 @@ namespace BmsLightBridge.Models
         public List<ArduinoDevice>          ArduinoDevices     { get; set; } = new();
         public List<WinWingDevice>          WinWingDevices     { get; set; } = new();
         public List<SignalMapping>          Mappings           { get; set; } = new();
-        public List<WinWingBrightnessChannel> BrightnessChannels { get; set; } = new();
+        public List<WinWingBrightnessChannel> BrightnessChannels  { get; set; } = new();
+        public List<AxisToKeyBinding>          AxisToKeyBindings   { get; set; } = new();
 
         /// <summary>Settings for ICP DED LCD display output.</summary>
         public IcpDisplayConfig IcpDisplay { get; set; } = new();
@@ -240,19 +240,6 @@ namespace BmsLightBridge.Models
                 File.Move(tempPath, ConfigPath);
         }
 
-        /// <summary>
-        /// Removes stale config entries that no longer have any associated mappings.
-        /// Intentionally does NOT remove entries based on which devices are currently
-        /// connected — settings for disconnected devices are preserved so they are
-        /// restored automatically when the device is reconnected.
-        ///
-        /// Rules:
-        ///   ArduinoDevices  — removed when no mapping references its ComPort.
-        ///   BrightnessChannels — removed when the ProductId is completely unknown
-        ///                        (not in WinWingDeviceGroups.KnownProductIds) AND no mapping
-        ///                        references it. Known-device entries are always kept so brightness
-        ///                        settings survive a disconnect/reconnect cycle.
-        /// </summary>
         /// <summary>
         /// Loads configuration from an arbitrary file path (used for import).
         /// Returns null if the file cannot be parsed.

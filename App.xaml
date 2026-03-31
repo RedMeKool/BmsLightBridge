@@ -15,22 +15,38 @@
             <!-- ===== GLOBALE KLEUREN — Steel Blue Avionics ===== -->
             <!-- Achtergrond: vrijwel neutraal donker met koele blauwgrijze ondertoon -->
             <SolidColorBrush x:Key="BackgroundBrush"     Color="#181C1F"/>
+            <!-- MenuBar: iets donkerder dan BackgroundBrush, voor menubalk en titelbalk -->
+            <SolidColorBrush x:Key="MenuBarBrush"        Color="#141A1E"/>
             <!-- Surface: licht lichter, staalgrijs met nauwelijks zichtbare blauwtint -->
             <SolidColorBrush x:Key="SurfaceBrush"        Color="#1E2327"/>
             <!-- Card: gedempte blauwgrijze toon, subtiel afstekend -->
             <SolidColorBrush x:Key="CardBrush"           Color="#242A2E"/>
+            <!-- Input: achtergrond voor invoervelden (TextBox, ComboBox, NumericUpDown) -->
+            <SolidColorBrush x:Key="InputBrush"          Color="#1C2226"/>
             <!-- Accent: gedempte staalblauwe toon — functioneel, niet schreeuwend -->
             <SolidColorBrush x:Key="AccentBrush"         Color="#6B8A9A"/>
             <!-- Groen behouden voor actieve status -->
             <SolidColorBrush x:Key="AccentGreenBrush"    Color="#3EC98A"/>
             <!-- Rood behouden voor fout/stop -->
             <SolidColorBrush x:Key="AccentRedBrush"      Color="#E05C6B"/>
+            <!-- Amber voor detectie-animaties (axis/button detect in progress) -->
+            <SolidColorBrush x:Key="AccentAmberBrush"    Color="#F0A500"/>
             <!-- Primaire tekst: lichtgrijs met minimale koele tint, hoog leesbaar -->
             <SolidColorBrush x:Key="TextPrimaryBrush"    Color="#C2CACF"/>
             <!-- Secundaire tekst: gedempte blauwgrijs — leesbaar maar teruggetrokken -->
             <SolidColorBrush x:Key="TextSecondaryBrush"  Color="#6A7C85"/>
             <!-- Border: subtiele scheidingslijn, nauwelijks zichtbaar maar aanwezig -->
             <SolidColorBrush x:Key="BorderBrush"         Color="#2D373D"/>
+
+            <!-- Alpha-tint achtergronden voor status- en info-banners -->
+            <SolidColorBrush x:Key="BannerRedBrush"      Color="#1AE05C6B"/>
+            <SolidColorBrush x:Key="BannerGreenBrush"    Color="#1A3EC98A"/>
+            <SolidColorBrush x:Key="BannerBlueBrush"     Color="#0F5A8FAD"/>
+            <SolidColorBrush x:Key="BannerGreenDarkBrush" Color="#1A3D2B"/>
+            <SolidColorBrush x:Key="BannerGreenDarkBorder" Color="#2A6B45"/>
+            <SolidColorBrush x:Key="BannerNeutralBrush"  Color="#1A2E3D4A"/>
+            <!-- Lichte groentint voor secundaire DED-tekst -->
+            <SolidColorBrush x:Key="TextGreenDimBrush"   Color="#5FD99A"/>
 
             <!-- ===== GLOBALE STIJLEN ===== -->
 
@@ -136,7 +152,7 @@
 
             <!-- ComboBox stijl -->
             <Style TargetType="ComboBox" x:Key="DarkComboBox">
-                <Setter Property="Background"      Value="#1C2226"/>
+                <Setter Property="Background"      Value="{StaticResource InputBrush}"/>
                 <Setter Property="Foreground"      Value="{StaticResource TextPrimaryBrush}"/>
                 <Setter Property="BorderBrush"     Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
@@ -148,7 +164,7 @@
                         <ControlTemplate TargetType="ComboBox">
                             <Grid>
                                 <ToggleButton x:Name="ToggleButton"
-                                              Background="#1C2226"
+                                              Background="{StaticResource InputBrush}"
                                               BorderBrush="{StaticResource BorderBrush}"
                                               BorderThickness="1"
                                               Padding="8,4"
@@ -202,7 +218,7 @@
                                        PopupAnimation="Slide">
                                     <Grid MinWidth="{TemplateBinding ActualWidth}"
                                           MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                        <Border Background="#1C2226"
+                                        <Border Background="{StaticResource InputBrush}"
                                                 BorderBrush="{StaticResource BorderBrush}"
                                                 BorderThickness="1"
                                                 CornerRadius="4">
@@ -221,7 +237,7 @@
                     <Setter.Value>
                         <Style TargetType="ComboBoxItem">
                             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                            <Setter Property="Background" Value="#1C2226"/>
+                            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
                             <Setter Property="Padding"    Value="8,6"/>
                             <Style.Triggers>
                                 <Trigger Property="IsHighlighted" Value="True">
@@ -232,6 +248,46 @@
                         </Style>
                     </Setter.Value>
                 </Setter>
+            </Style>
+
+            <!-- TextBox stijl -->
+            <Style TargetType="TextBox" x:Key="DarkTextBox">
+                <Setter Property="Background"   Value="{StaticResource InputBrush}"/>
+                <Setter Property="Foreground"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"  Value="{StaticResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CaretBrush"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Padding"      Value="6,5"/>
+                <Setter Property="FontSize"     Value="12"/>
+                <Setter Property="Height"       Value="32"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+            </Style>
+
+            <!-- NumericUpDown stijl (MahApps) -->
+            <Style TargetType="metro:NumericUpDown" x:Key="DarkNumericUpDown">
+                <Setter Property="Background"   Value="{StaticResource InputBrush}"/>
+                <Setter Property="Foreground"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"  Value="{StaticResource BorderBrush}"/>
+                <Setter Property="Height"       Value="32"/>
+                <Setter Property="FontSize"     Value="12"/>
+            </Style>
+
+            <!-- Toggle row: bordered panel met checkbox en label -->
+            <Style TargetType="Border" x:Key="ToggleRowStyle">
+                <Setter Property="CornerRadius"     Value="6"/>
+                <Setter Property="Padding"          Value="12,10"/>
+                <Setter Property="Background"       Value="{StaticResource InputBrush}"/>
+                <Setter Property="BorderBrush"      Value="{StaticResource BorderBrush}"/>
+                <Setter Property="BorderThickness"  Value="1"/>
+            </Style>
+
+            <!-- DarkDisplayBox: read-only waardedisplay (geselecteerde as, knopnummer, etc.) -->
+            <Style TargetType="Border" x:Key="DarkDisplayBox">
+                <Setter Property="Background"      Value="{StaticResource BackgroundBrush}"/>
+                <Setter Property="BorderBrush"     Value="{StaticResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius"    Value="3"/>
+                <Setter Property="Padding"         Value="6,4"/>
             </Style>
 
         </ResourceDictionary>

@@ -8,7 +8,7 @@
     xmlns:conv="clr-namespace:BmsLightBridge.Converters"
     xmlns:models="clr-namespace:BmsLightBridge.Models"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
-    Title="BMS Light Bridge v1.0.3"
+    Title="BMS Light Bridge v1.0.4"
     Height="780" Width="1280"
     MinHeight="600" MinWidth="900"
     Background="{StaticResource BackgroundBrush}"
@@ -111,8 +111,9 @@
                             <TextBlock Text="Stop Sync" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Border CornerRadius="6" Padding="10,6" Margin="0,0,12,0"
-                            Background="#1A2226" VerticalAlignment="Center">
+                    <Border Style="{StaticResource ToggleRowStyle}"
+                            Padding="10,6" Margin="0,0,12,0"
+                            VerticalAlignment="Center">
                         <CheckBox IsChecked="{Binding AutoSync, Mode=TwoWay}"
                                   VerticalAlignment="Center"
                                   Foreground="{StaticResource TextPrimaryBrush}"
@@ -190,10 +191,10 @@
                                 <Style TargetType="Border">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
-                                            <Setter Property="Background" Value="#1A3EC98A"/>
+                                            <Setter Property="Background" Value="{StaticResource BannerGreenBrush}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
-                                            <Setter Property="Background" Value="#1AE05C6B"/>
+                                            <Setter Property="Background" Value="{StaticResource BannerRedBrush}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -204,7 +205,7 @@
                                         <Style TargetType="Ellipse">
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
-                                                    <Setter Property="Fill" Value="#3EC98A"/>
+                                                    <Setter Property="Fill" Value="{StaticResource AccentGreenBrush}"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
                                                     <Setter Property="Fill" Value="{StaticResource AccentRedBrush}"/>
@@ -222,7 +223,7 @@
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
                                                         <Setter Property="Text" Value="Connected"/>
-                                                        <Setter Property="Foreground" Value="#3EC98A"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
                                                         <Setter Property="Text" Value="Not connected"/>
@@ -243,7 +244,7 @@
                                             <Setter Property="Background" Value="#1A5A8FAD"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsSyncing}" Value="False">
-                                            <Setter Property="Background" Value="#1A2226"/>
+                                            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -295,7 +296,7 @@
              MENUBALK
              ================================================================ -->
         <Border Grid.Row="1"
-                Background="#141A1E"
+                Background="{StaticResource MenuBarBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,0,0,1">
             <Menu Background="Transparent"
@@ -427,7 +428,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="300"/>    <!-- Signaallijst -->
                 <ColumnDefinition Width="8"/>                    <!-- Splitter -->
-                <ColumnDefinition Width="340" MinWidth="280"/>  <!-- Mapping editor -->
+                <ColumnDefinition Width="520" MinWidth="420"/>  <!-- Mapping editor -->
             </Grid.ColumnDefinitions>
 
             <!-- ============================================================
@@ -455,7 +456,7 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Zoekbalk -->
-                        <Border Grid.Column="0" Background="#1C2226" CornerRadius="6"
+                        <Border Grid.Column="0" Background="{StaticResource InputBrush}" CornerRadius="6"
                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -525,7 +526,7 @@
                         </Grid.RowDefinitions>
 
                         <!-- Kolomhoofden -->
-                        <Border Grid.Row="0" Background="#1C2226" Padding="12,8"
+                        <Border Grid.Row="0" Background="{StaticResource InputBrush}" Padding="12,8"
                                 CornerRadius="8,8,0,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -557,9 +558,9 @@
                                                             <ControlTemplate TargetType="Expander">
                                                                 <StackPanel>
                                                                     <!-- Category header (clickable) -->
-                                                                    <Border Background="#1C2226"
+                                                                    <Border Background="{StaticResource InputBrush}"
                                                                             Padding="12,6"
-                                                                            BorderBrush="#2D373D"
+                                                                            BorderBrush="{StaticResource BorderBrush}"
                                                                             BorderThickness="0,0,0,1"
                                                                             Cursor="Hand">
                                                                         <Border.InputBindings>
@@ -578,7 +579,7 @@
                                                                             <iconPacks:PackIconMaterial Grid.Column="0"
                                                                                 Width="10" Height="10"
                                                                                 VerticalAlignment="Center"
-                                                                                Foreground="#6B8A9A"
+                                                                                Foreground="{StaticResource AccentBrush}"
                                                                                 Margin="0,0,8,0">
                                                                                 <iconPacks:PackIconMaterial.Style>
                                                                                     <Style TargetType="iconPacks:PackIconMaterial">
@@ -596,14 +597,14 @@
                                                                             <!-- Category name -->
                                                                             <TextBlock Grid.Column="1"
                                                                                        Text="{Binding Name}"
-                                                                                       Foreground="#6B8A9A"
+                                                                                       Foreground="{StaticResource AccentBrush}"
                                                                                        FontSize="11"
                                                                                        FontWeight="SemiBold"
                                                                                        VerticalAlignment="Center"/>
                                                                             <!-- Count badge -->
                                                                             <TextBlock Grid.Column="2"
                                                                                        Text="{Binding Signals.Count, StringFormat='({0})'}"
-                                                                                       Foreground="#6A7C85"
+                                                                                       Foreground="{StaticResource TextSecondaryBrush}"
                                                                                        FontSize="10"
                                                                                        VerticalAlignment="Center"/>
                                                                         </Grid>
@@ -675,7 +676,7 @@
                                                                         <Style TargetType="TextBlock">
                                                                             <Style.Triggers>
                                                                                 <DataTrigger Binding="{Binding IsOn}" Value="True">
-                                                                                    <Setter Property="Foreground" Value="#3EC98A"/>
+                                                                                    <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
                                                                                 </DataTrigger>
                                                                                 <DataTrigger Binding="{Binding IsOn}" Value="False">
                                                                                     <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
@@ -773,10 +774,10 @@
                                     <Style TargetType="Border">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding SelectedSignal.IsOn}" Value="True">
-                                                <Setter Property="Background" Value="#1A3EC98A"/>
+                                                <Setter Property="Background" Value="{StaticResource BannerGreenBrush}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding SelectedSignal.IsOn}" Value="False">
-                                                <Setter Property="Background" Value="#1A2E3D4A"/>
+                                                <Setter Property="Background" Value="{StaticResource BannerNeutralBrush}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -790,7 +791,7 @@
                                             <Style TargetType="TextBlock">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding SelectedSignal.IsOn}" Value="True">
-                                                        <Setter Property="Foreground" Value="#3EC98A"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding SelectedSignal.IsOn}" Value="False">
                                                         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
@@ -932,17 +933,14 @@
                                 <!-- Pin nummer -->
                                 <TextBlock Text="Pin Number" Style="{StaticResource LabelStyle}" Margin="0,0,0,4"/>
                                 <metro:NumericUpDown Value="{Binding EditorPin}"
+                                                     Style="{StaticResource DarkNumericUpDown}"
                                                      Minimum="1" Maximum="53"
-                                                     Background="#1C2226"
-                                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                                     BorderBrush="{StaticResource BorderBrush}"
-                                                     Height="32"
                                                      ToolTip="Arduino digital pin number that controls this light (1–53)"/>
 
                                 <TextBlock Style="{StaticResource LabelStyle}"
                                            Text="Tip: Pin 13 has a built-in LED on most Arduino boards."
                                            TextWrapping="Wrap" Margin="0,8,0,0" FontStyle="Italic"/>
-                                <Border Height="1" Background="#1E2529" Margin="0,16,0,12"/>
+                                <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,16,0,12"/>
 
                                 <!-- Board settings -->
                                 <TextBlock Style="{StaticResource LabelStyle}" Text="BOARD SETTINGS" Margin="0,0,0,4"/>
@@ -953,21 +951,17 @@
                                 <!-- Baud Rate -->
                                 <TextBlock Text="Baud Rate" Style="{StaticResource LabelStyle}" Margin="0,0,0,4"/>
                                 <metro:NumericUpDown Value="{Binding BoardBaudRate}"
+                                                     Style="{StaticResource DarkNumericUpDown}"
                                                      Minimum="1200" Maximum="2000000" Interval="9600"
-                                                     Background="#1C2226"
-                                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                                     BorderBrush="{StaticResource BorderBrush}"
-                                                     Height="32" Margin="0,0,0,12"
+                                                     Margin="0,0,0,12"
                                                      ToolTip="Serial baud rate. Default is 115200 for F4ToSerial."/>
 
                                 <!-- Reset Delay -->
                                 <TextBlock Text="Reset Delay (ms)" Style="{StaticResource LabelStyle}" Margin="0,0,0,4"/>
                                 <metro:NumericUpDown Value="{Binding BoardResetDelayMs}"
+                                                     Style="{StaticResource DarkNumericUpDown}"
                                                      Minimum="0" Maximum="5000" Interval="500"
-                                                     Background="#1C2226"
-                                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                                     BorderBrush="{StaticResource BorderBrush}"
-                                                     Height="32" Margin="0,0,0,4"
+                                                     Margin="0,0,0,4"
                                                      ToolTip="Wait time after opening the port. Arduino Leonardo: 2000 ms. ESP32: 0 ms."/>
                                 <TextBlock Style="{StaticResource LabelStyle}" FontStyle="Italic" Opacity="0.65"
                                            TextWrapping="Wrap" Margin="0,0,0,12">
@@ -1017,7 +1011,7 @@
                                 </Grid>
 
                                 <!-- Geen WinWing gevonden -->
-                                <Border CornerRadius="6" Background="#1AE05C6B" Padding="10,8"
+                                <Border CornerRadius="6" Background="{StaticResource BannerRedBrush}" Padding="10,8"
                                         Margin="0,0,0,12">
                                     <Border.Style>
                                         <Style TargetType="Border">
@@ -1030,7 +1024,7 @@
                                         </Style>
                                     </Border.Style>
                                     <TextBlock Text="⚠ No WinWing controllers found. Check the USB connection."
-                                               Foreground="#E05C6B" FontSize="11" TextWrapping="Wrap"/>
+                                               Foreground="{StaticResource AccentRedBrush}" FontSize="11" TextWrapping="Wrap"/>
                                 </Border>
 
                                 <!-- Lamp index -->
@@ -1142,42 +1136,39 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Huidige mappings lijstje -->
+                    <!-- Huidige mappings -->
                     <Border Style="{StaticResource CardStyle}"
                             Visibility="{Binding SelectedSignal.IsMapped, Converter={StaticResource BoolToVisible}}">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource LabelStyle}" Text="CURRENT MAPPINGS" Margin="0,0,0,8"/>
+                            <TextBlock Style="{StaticResource LabelStyle}" Text="CURRENT MAPPINGS" Margin="0,0,0,10"/>
                             <ItemsControl ItemsSource="{Binding SelectedSignal.MappingRows}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border CornerRadius="4" Background="#1A2A3040" Padding="10,8"
-                                                Margin="0,0,0,6">
+                                        <Border CornerRadius="5" Background="{StaticResource BannerGreenDarkBrush}"
+                                                BorderBrush="{StaticResource BannerGreenDarkBorder}" BorderThickness="1"
+                                                Padding="10,6" Margin="0,0,0,6">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="6"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0" Orientation="Horizontal"
-                                                            VerticalAlignment="Center">
-                                                    <Ellipse Width="6" Height="6" Margin="0,0,8,0"
-                                                             Fill="{StaticResource AccentBrush}"
-                                                             VerticalAlignment="Center"/>
-                                                    <StackPanel>
-                                                        <TextBlock Text="{Binding DeviceLabel}"
-                                                                   Foreground="#3EC98A" FontSize="12"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{Binding OutputLabel}"
-                                                                   Foreground="#3EC98A" FontSize="12"
-                                                                   FontWeight="SemiBold"/>
-                                                    </StackPanel>
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding DeviceLabel}"
+                                                               Foreground="{StaticResource TextGreenDimBrush}" FontSize="10"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding OutputLabel}"
+                                                               Foreground="{StaticResource AccentGreenBrush}" FontSize="12"
+                                                               FontWeight="SemiBold"/>
                                                 </StackPanel>
-                                                <Button Grid.Column="1"
+                                                <Button Grid.Column="2"
                                                         Command="{Binding DeleteCommand}"
                                                         Style="{StaticResource SecondaryButton}"
-                                                        Height="22" Width="22" Padding="0"
+                                                        Height="18" Width="18" Padding="0"
+                                                        VerticalAlignment="Center"
                                                         ToolTip="Remove this mapping">
                                                     <iconPacks:PackIconMaterial Kind="Close"
-                                                                                Width="10" Height="10"/>
+                                                                                Width="8" Height="8"/>
                                                 </Button>
                                             </Grid>
                                         </Border>
@@ -1221,7 +1212,7 @@
                                     </Grid>
 
                                     <!-- No device warning -->
-                                    <Border CornerRadius="6" Background="#1AE05C6B" Padding="10,8" Margin="0,8,0,0">
+                                    <Border CornerRadius="6" Background="{StaticResource BannerRedBrush}" Padding="10,8" Margin="0,8,0,0">
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Setter Property="Visibility" Value="Collapsed"/>
@@ -1233,7 +1224,7 @@
                                             </Style>
                                         </Border.Style>
                                         <TextBlock Text="⚠ No WinWing controllers found. Check the USB connection."
-                                                   Foreground="#E05C6B" FontSize="11" TextWrapping="Wrap"/>
+                                                   Foreground="{StaticResource AccentRedBrush}" FontSize="11" TextWrapping="Wrap"/>
                                     </Border>
                                 </StackPanel>
                             </Border>
@@ -1247,8 +1238,8 @@
                                     <ItemsControl ItemsSource="{Binding SelectedBrightnessChannels}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Margin="0,0,0,12" Padding="12,10"
-                                                        Background="#1A2226" CornerRadius="6">
+                                                <Border Style="{StaticResource ToggleRowStyle}"
+                                                        Margin="0,0,0,12">
                                                     <StackPanel>
                                                                                  <!-- Channel label + mode selector -->
                                                         <Grid Margin="0,0,0,8">
@@ -1346,9 +1337,7 @@
                                                                     <ColumnDefinition Width="Auto"/>
                                                                 </Grid.ColumnDefinitions>
                                                                 <!-- Axis display + detect button -->
-                                                                <Border Grid.Column="0" Background="#0D1A1F" CornerRadius="3"
-                                                                        BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
-                                                                        Padding="6,4">
+                                                                <Border Grid.Column="0" Style="{StaticResource DarkDisplayBox}">
                                                                     <TextBlock VerticalAlignment="Center" FontSize="12">
                                                                         <TextBlock.Style>
                                                                             <Style TargetType="TextBlock">
@@ -1380,7 +1369,7 @@
                                                                                     <Setter Property="Content">
                                                                                         <Setter.Value>
                                                                                             <iconPacks:PackIconMaterial Kind="RecordCircle" Width="12" Height="12"
-                                                                                                                        Foreground="#F0A500"/>
+                                                                                                                        Foreground="{StaticResource AccentAmberBrush}"/>
                                                                                         </Setter.Value>
                                                                                     </Setter>
                                                                                 </DataTrigger>
@@ -1439,9 +1428,7 @@
                                                                             <ColumnDefinition Width="4"/>
                                                                             <ColumnDefinition Width="Auto"/>
                                                                         </Grid.ColumnDefinitions>
-                                                                        <Border Grid.Column="0" Background="#0D1A1F" CornerRadius="3"
-                                                                                BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
-                                                                                Padding="6,4">
+                                                                        <Border Grid.Column="0" Style="{StaticResource DarkDisplayBox}">
                                                                             <TextBlock VerticalAlignment="Center" FontSize="12">
                                                                                 <TextBlock.Style>
                                                                                     <Style TargetType="TextBlock">
@@ -1473,7 +1460,7 @@
                                                                                             <Setter Property="Content">
                                                                                                 <Setter.Value>
                                                                                                     <iconPacks:PackIconMaterial Kind="RecordCircle" Width="12" Height="12"
-                                                                                                                                Foreground="#F0A500"/>
+                                                                                                                                Foreground="{StaticResource AccentAmberBrush}"/>
                                                                                                 </Setter.Value>
                                                                                             </Setter>
                                                                                         </DataTrigger>
@@ -1493,9 +1480,7 @@
                                                                             <ColumnDefinition Width="4"/>
                                                                             <ColumnDefinition Width="Auto"/>
                                                                         </Grid.ColumnDefinitions>
-                                                                        <Border Grid.Column="0" Background="#0D1A1F" CornerRadius="3"
-                                                                                BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
-                                                                                Padding="6,4">
+                                                                        <Border Grid.Column="0" Style="{StaticResource DarkDisplayBox}">
                                                                             <TextBlock VerticalAlignment="Center" FontSize="12">
                                                                                 <TextBlock.Style>
                                                                                     <Style TargetType="TextBlock">
@@ -1527,7 +1512,7 @@
                                                                                             <Setter Property="Content">
                                                                                                 <Setter.Value>
                                                                                                     <iconPacks:PackIconMaterial Kind="RecordCircle" Width="12" Height="12"
-                                                                                                                                Foreground="#F0A500"/>
+                                                                                                                                Foreground="{StaticResource AccentAmberBrush}"/>
                                                                                                 </Setter.Value>
                                                                                             </Setter>
                                                                                         </DataTrigger>
@@ -1581,16 +1566,16 @@
                                     </Grid>
 
                                     <!-- Saved brightness summary (mirrors CurrentMappingText style in Mapping tab) -->
-                                    <Border Margin="0,10,0,0" CornerRadius="4" Background="#1A2226"
+                                    <Border Margin="0,10,0,0" CornerRadius="4" Background="{StaticResource InputBrush}"
                                             Padding="10,8"
                                             Visibility="{Binding BrightnessSummaryText,
                                                 Converter={StaticResource NullOrEmptyToCollapsed}}">
                                         <StackPanel>
                                             <TextBlock Style="{StaticResource LabelStyle}"
                                                        Text="SAVED SETTINGS" Margin="0,0,0,6"/>
-                                            <Border CornerRadius="4" Background="#1A3EC98A" Padding="10,8">
+                                            <Border CornerRadius="4" Background="{StaticResource BannerGreenBrush}" Padding="10,8">
                                                 <TextBlock Text="{Binding BrightnessSummaryText}"
-                                                           Foreground="#3EC98A" FontSize="12"
+                                                           Foreground="{StaticResource AccentGreenBrush}" FontSize="12"
                                                            FontFamily="Consolas"
                                                            TextWrapping="Wrap"/>
                                             </Border>
@@ -1628,8 +1613,8 @@
                                                TextWrapping="Wrap" Margin="0,0,0,16" FontStyle="Italic" Opacity="0.75"/>
 
                                     <!-- Enable toggle -->
-                                    <Border CornerRadius="6" Padding="12,10"
-                                            Background="#1A2226" Margin="0,0,0,12">
+                                    <Border Style="{StaticResource ToggleRowStyle}"
+                                            Margin="0,0,0,12">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1657,10 +1642,10 @@
                                             <Style TargetType="Border">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IcpIsConnected}" Value="True">
-                                                        <Setter Property="Background" Value="#1A3EC98A"/>
+                                                        <Setter Property="Background" Value="{StaticResource BannerGreenBrush}"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding IcpIsConnected}" Value="False">
-                                                        <Setter Property="Background" Value="#1A2226"/>
+                                                        <Setter Property="Background" Value="{StaticResource InputBrush}"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -1671,7 +1656,7 @@
                                                     <Style TargetType="Ellipse">
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IcpIsConnected}" Value="True">
-                                                                <Setter Property="Fill" Value="#3EC98A"/>
+                                                                <Setter Property="Fill" Value="{StaticResource AccentGreenBrush}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding IcpIsConnected}" Value="False">
                                                                 <Setter Property="Fill" Value="#4A606E"/>
@@ -1689,7 +1674,7 @@
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding IcpIsConnected}" Value="True">
                                                                     <Setter Property="Text" Value="Connected"/>
-                                                                    <Setter Property="Foreground" Value="#3EC98A"/>
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
                                                                 </DataTrigger>
                                                                 <DataTrigger Binding="{Binding IcpIsConnected}" Value="False">
                                                                     <Setter Property="Text" Value="Not connected"/>
@@ -1704,10 +1689,10 @@
                                     </Border>
 
                                     <!-- Requirements note -->
-                                    <Border CornerRadius="6" Background="#0F5A8FAD" Padding="10,8" Margin="0,8,0,0">
+                                    <Border CornerRadius="6" Background="{StaticResource BannerBlueBrush}" Padding="10,8" Margin="0,8,0,0">
                                         <StackPanel>
                                             <TextBlock Text="Requirements" FontWeight="SemiBold"
-                                                       Foreground="#6B8A9A" FontSize="11" Margin="0,0,0,4"/>
+                                                       Foreground="{StaticResource AccentBrush}" FontSize="11" Margin="0,0,0,4"/>
                                             <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
                                                        FontSize="11" TextWrapping="Wrap">
                                                 • WinWing ViperAce ICP connected via USB&#x0a;• Sync must be active for DED updates to be sent
@@ -1730,9 +1715,9 @@
                                                    Foreground="{StaticResource TextSecondaryBrush}"
                                                    FontSize="14" FontWeight="SemiBold"
                                                    VerticalAlignment="Center"/>
-                                        <Border CornerRadius="4" Background="#1A2E3D4A" Padding="6,2" Margin="8,0,0,0">
+                                        <Border CornerRadius="4" Background="{StaticResource BannerNeutralBrush}" Padding="6,2" Margin="8,0,0,0">
                                             <TextBlock Text="COMING SOON" FontSize="9" FontWeight="SemiBold"
-                                                       Foreground="#6A7C85"/>
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
                                         </Border>
                                     </StackPanel>
                                     <TextBlock Style="{StaticResource LabelStyle}"
@@ -1769,8 +1754,8 @@
                                                TextWrapping="Wrap" Margin="0,0,0,16" FontStyle="Italic" Opacity="0.75"/>
 
                                     <!-- Launch on sync start toggle -->
-                                    <Border CornerRadius="6" Padding="12,10"
-                                            Background="#1A2226" Margin="0,0,0,8">
+                                    <Border Style="{StaticResource ToggleRowStyle}"
+                                            Margin="0,0,0,8">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1793,8 +1778,8 @@
                                     </Border>
 
                                     <!-- Auto shutdown toggle -->
-                                    <Border CornerRadius="6" Padding="12,10"
-                                            Background="#1A2226" Margin="0,0,0,12">
+                                    <Border Style="{StaticResource ToggleRowStyle}"
+                                            Margin="0,0,0,12">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1838,11 +1823,8 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBox Grid.Column="0"
+                                                     Style="{StaticResource DarkTextBox}"
                                                      Text="{Binding HeliosControlCenterPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                                     Background="#1A2226" BorderThickness="1"
-                                                     BorderBrush="{StaticResource BorderBrush}"
-                                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                                     Padding="6,5" CaretBrush="{StaticResource TextPrimaryBrush}"
                                                      ToolTip="Full path to Control Center.exe"
                                                      Margin="0,0,6,0" FontSize="11" IsReadOnly="True"/>
                                             <Button Grid.Column="1"
@@ -1869,11 +1851,8 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBox Grid.Column="0"
+                                                     Style="{StaticResource DarkTextBox}"
                                                      Text="{Binding HeliosProfilePath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                                     Background="#1A2226" BorderThickness="1"
-                                                     BorderBrush="{StaticResource BorderBrush}"
-                                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                                     Padding="6,5" CaretBrush="{StaticResource TextPrimaryBrush}"
                                                      ToolTip="Full path to your .hpf Helios profile"
                                                      Margin="0,0,6,0" FontSize="11" IsReadOnly="True"/>
                                             <Button Grid.Column="1"
@@ -1897,6 +1876,249 @@
 
                         </StackPanel>
                     </ScrollViewer>
+                </TabItem>
+
+                <!-- Tab: Axis to Key -->
+                <TabItem Header="Axis to Key">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Header -->
+                        <Border Grid.Row="0" Style="{StaticResource CardStyle}" Margin="8,8,8,4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource LabelStyle}" FontWeight="SemiBold"
+                                               Text="AXIS TO KEY BINDINGS"/>
+                                    <TextBlock Style="{StaticResource LabelStyle}" FontSize="11" Margin="0,2,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="Map a joystick axis to keyboard keys."/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding AxisToKeyTab.AddBindingCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <iconPacks:PackIconMaterial Kind="Plus" Width="12" Height="12"
+                                                                    VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                        <TextBlock Text="Add Binding" FontSize="12" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </Border>
+
+                        <!-- Binding list -->
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="8,0,8,8">
+                            <ItemsControl ItemsSource="{Binding AxisToKeyTab.Bindings}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,4,0,0">
+                                            <StackPanel>
+
+                                                <!-- Row 1: Enabled + Label + Delete -->
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                              VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBox Grid.Column="1"
+                                                             Style="{StaticResource DarkTextBox}"
+                                                             Text="{Binding Label, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                             FontSize="13" FontWeight="SemiBold" Height="Auto" Padding="6,4"/>
+                                                    <Button Grid.Column="2" Style="{StaticResource SecondaryButton}"
+                                                            Command="{Binding DataContext.AxisToKeyTab.DeleteBindingCommand,
+                                                                      RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            Margin="8,0,0,0" ToolTip="Delete">
+                                                        <iconPacks:PackIconMaterial Kind="Delete" Width="13" Height="13"/>
+                                                    </Button>
+                                                </Grid>
+
+                                                <!-- Row 2: Joystick + Axis + Detect + Invert -->
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="90"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox Grid.Column="0" Style="{StaticResource DarkComboBox}"
+                                                              ItemsSource="{Binding AvailableJoysticks}"
+                                                              SelectedItem="{Binding SelectedJoystick, Mode=TwoWay}"
+                                                              DisplayMemberPath="Name"/>
+                                                    <ComboBox Grid.Column="2" Style="{StaticResource DarkComboBox}"
+                                                              ItemsSource="{Binding Source={StaticResource JoystickAxes}}"
+                                                              SelectedItem="{Binding SelectedAxis, Mode=TwoWay}"/>
+                                                    <Button Grid.Column="4" Style="{StaticResource SecondaryButton}"
+                                                            Command="{Binding DetectAxisCommand}">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <iconPacks:PackIconMaterial Kind="Radar" Width="11" Height="11"
+                                                                                        VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                            <TextBlock FontSize="11" VerticalAlignment="Center">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Text" Value="Detect axis"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsDetectingAxis}" Value="True">
+                                                                                <Setter Property="Text" Value="Move axis…"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <CheckBox Grid.Column="6" IsChecked="{Binding AxisInvert, Mode=TwoWay}"
+                                                              Content="Invert" Foreground="{StaticResource TextSecondaryBrush}"
+                                                              FontSize="11" VerticalAlignment="Center"/>
+                                                </Grid>
+
+                                                <!-- Row 3: Sensitivity -->
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="70"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="Sensitivity"
+                                                               Style="{StaticResource LabelStyle}" FontSize="10"
+                                                               VerticalAlignment="Center"/>
+                                                    <Slider Grid.Column="2" Value="{Binding Sensitivity, Mode=TwoWay}"
+                                                            Minimum="1" Maximum="10" TickFrequency="1"
+                                                            IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="4"
+                                                               Text="{Binding Sensitivity}"
+                                                               Style="{StaticResource LabelStyle}" FontSize="10"
+                                                               VerticalAlignment="Center" MinWidth="20"
+                                                               TextAlignment="Right"/>
+                                                </Grid>
+
+                                                <!-- Row 4: KEY UP | KEY DOWN -->
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- KEY UP -->
+                                                    <Border Grid.Column="0" Background="Transparent" CornerRadius="4"
+                                                            BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+                                                            Padding="8,6">
+                                                        <StackPanel>
+                                                            <TextBlock Text="KEY UP ▲"
+                                                                       Style="{StaticResource LabelStyle}"
+                                                                       FontSize="10" FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                                       Margin="0,0,0,5"/>
+                                                            <!-- Combo label + detect knop -->
+                                                            <Grid Margin="0,0,0,6">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="6"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Border Grid.Column="0" Background="Transparent"
+                                                                        CornerRadius="3" BorderThickness="1"
+                                                                        BorderBrush="{StaticResource BorderBrush}"
+                                                                        Padding="6,4" MinHeight="28">
+                                                                    <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold">
+                                                                        <TextBlock.Style>
+                                                                            <Style TargetType="TextBlock">
+                                                                                <Setter Property="Text" Value="{Binding KeyUpCombo}"/>
+                                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsDetectingKeyUp}" Value="True">
+                                                                                        <Setter Property="Text" Value="Press a key…"/>
+                                                                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding KeyUpCombo}" Value="Not set">
+                                                                                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </TextBlock.Style>
+                                                                    </TextBlock>
+                                                                </Border>
+                                                                <Button Grid.Column="2" Style="{StaticResource SecondaryButton}"
+                                                                        Command="{Binding DetectKeyUpCommand}"
+                                                                        ToolTip="Click, then press the desired key">
+                                                                    <iconPacks:PackIconMaterial Kind="Keyboard" Width="12" Height="12"/>
+                                                                </Button>
+                                                            </Grid>
+
+                                                        </StackPanel>
+                                                    </Border>
+
+                                                    <!-- KEY DOWN -->
+                                                    <Border Grid.Column="2" Background="Transparent" CornerRadius="4"
+                                                            BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+                                                            Padding="8,6">
+                                                        <StackPanel>
+                                                            <TextBlock Text="KEY DOWN ▼"
+                                                                       Style="{StaticResource LabelStyle}"
+                                                                       FontSize="10" FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                                       Margin="0,0,0,5"/>
+                                                            <!-- Combo label + detect knop -->
+                                                            <Grid Margin="0,0,0,6">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="6"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Border Grid.Column="0" Background="Transparent"
+                                                                        CornerRadius="3" BorderThickness="1"
+                                                                        BorderBrush="{StaticResource BorderBrush}"
+                                                                        Padding="6,4" MinHeight="28">
+                                                                    <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold">
+                                                                        <TextBlock.Style>
+                                                                            <Style TargetType="TextBlock">
+                                                                                <Setter Property="Text" Value="{Binding KeyDownCombo}"/>
+                                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsDetectingKeyDown}" Value="True">
+                                                                                        <Setter Property="Text" Value="Press a key…"/>
+                                                                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding KeyDownCombo}" Value="Not set">
+                                                                                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </TextBlock.Style>
+                                                                    </TextBlock>
+                                                                </Border>
+                                                                <Button Grid.Column="2" Style="{StaticResource SecondaryButton}"
+                                                                        Command="{Binding DetectKeyDownCommand}"
+                                                                        ToolTip="Click, then press the desired key">
+                                                                    <iconPacks:PackIconMaterial Kind="Keyboard" Width="12" Height="12"/>
+                                                                </Button>
+                                                            </Grid>
+
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Grid>
+
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
                 </TabItem>
 
             </TabControl>
@@ -1933,7 +2155,7 @@
                             <Style TargetType="Ellipse">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsSyncing}" Value="True">
-                                        <Setter Property="Fill" Value="#3EC98A"/>
+                                        <Setter Property="Fill" Value="{StaticResource AccentGreenBrush}"/>
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding IsSyncing}" Value="False">
                                         <Setter Property="Fill" Value="#4A606E"/>
@@ -1948,7 +2170,7 @@
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsSyncing}" Value="True">
                                         <Setter Property="Text" Value="Synchronisation active"/>
-                                        <Setter Property="Foreground" Value="#3EC98A"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding IsSyncing}" Value="False">
                                         <Setter Property="Text" Value="Synchronisation stopped"/>
