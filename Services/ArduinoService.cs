@@ -197,12 +197,25 @@ namespace BmsLightBridge.Services
         private static void ProcessPort(PortState state, IEnumerable<SignalMapping> mappings,
             Dictionary<string, bool> lightStates)
         {
-            if (!state.Port.IsOpen || state.Pins.Length == 0) return;
+            if (!state.Port.IsOpen) return;
 
-            // Use the cached mapping list. Rebuild only if the count has changed
-            // (e.g., user added/removed a mapping while sync is active).
+            // Rebuild if count changed or if any signal name no longer matches
+            // (handles the case where a mapping is replaced with a different signal on the same pin)
             var active = state.ActiveMappings;
-            if (active.Count != state.Pins.Length)
+            bool needsRebuild = active.Count != state.Pins.Length;
+            if (!needsRebuild)
+            {
+                var current = mappings
+                    .Where(m => m.IsEnabled
+                             && m.TargetDevice == DeviceType.Arduino
+                             && string.Equals(m.ArduinoComPort, state.ComPort, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (current.Count != active.Count ||
+                    current.Zip(active).Any(p => p.First.BmsSignalName != p.Second.BmsSignalName ||
+                                                  p.First.ArduinoPin    != p.Second.ArduinoPin))
+                    needsRebuild = true;
+            }
+            if (needsRebuild)
             {
                 BuildPinTable(state, mappings);
                 SendSetup(state);

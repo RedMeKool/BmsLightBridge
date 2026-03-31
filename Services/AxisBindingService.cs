@@ -40,6 +40,7 @@ namespace BmsLightBridge.Services
         // Open joystick handles: instanceGuid → Joystick
         private readonly Dictionary<string, Joystick> _openDevices = new();
         private readonly Dictionary<(string guid, int axis), int> _axisCache = new();
+        private readonly HashSet<string> _pinnedGuids = new();   // guids kept open by EnsureDeviceOpen (AxisToKey)
         private readonly object _devLock = new();
 
         private System.Threading.Timer? _pollTimer;
@@ -205,9 +206,9 @@ namespace BmsLightBridge.Services
                 if (raw == 32767 && ab.LastRawValue >= 0)
                     raw = ab.LastRawValue;
                 else if (raw != 32767)
-                    ab.LastRawValue = raw; // Opslaan voor volgende keer
+                    ab.LastRawValue = raw; // Store for next poll
 
-                // Cache alle assen van dit device zodat AxisToKeyService ze kan lezen
+                // Cache all axes for this device so AxisToKeyService can read them
                 lock (_devLock)
                 {
                     _axisCache[(ab.DeviceInstanceGuid, 0)] = state.X;
@@ -216,6 +217,8 @@ namespace BmsLightBridge.Services
                     _axisCache[(ab.DeviceInstanceGuid, 3)] = state.RotationX;
                     _axisCache[(ab.DeviceInstanceGuid, 4)] = state.RotationY;
                     _axisCache[(ab.DeviceInstanceGuid, 5)] = state.RotationZ;
+                    _axisCache[(ab.DeviceInstanceGuid, 6)] = state.Sliders.Length > 0 ? state.Sliders[0] : 0;
+                    _axisCache[(ab.DeviceInstanceGuid, 7)] = state.Sliders.Length > 1 ? state.Sliders[1] : 0;
                 }
                 int mapped = Math.Clamp(raw, 0, 65535) * 255 / 65535;
                 if (ab.Invert) mapped = 255 - mapped;
@@ -488,45 +491,45 @@ namespace BmsLightBridge.Services
         {
             if (!_dinputAvailable || _directInput == null) return;
 
+            List<string> toOpen;
             lock (_devLock)
             {
-                // Close devices no longer needed
-                var toClose = _openDevices.Keys.Where(g => !neededGuids.Contains(g)).ToList();
+                // Close devices no longer needed by brightness bindings and not pinned by AxisToKey
+                var toClose = _openDevices.Keys.Where(g => !neededGuids.Contains(g) && !_pinnedGuids.Contains(g)).ToList();
                 foreach (var g in toClose)
                 {
                     try { _openDevices[g].Dispose(); } catch { }
                     _openDevices.Remove(g);
                 }
 
-                // Open devices not yet open
-                foreach (var guidStr in neededGuids)
+                // Collect devices that need to be opened (wake-up loop runs outside the lock)
+                toOpen = neededGuids.Where(g => !_openDevices.ContainsKey(g)).ToList();
+            }
+
+            // Open new devices outside the lock so the 200ms wake-up doesn't block the poll thread
+            foreach (var guidStr in toOpen)
+            {
+                try
                 {
-                    if (_openDevices.ContainsKey(guidStr)) continue;
+                    var guid     = new Guid(guidStr);
+                    var joystick = new Joystick(_directInput, guid);
 
-                    try
+                    joystick.SetCooperativeLevel(
+                        IntPtr.Zero,
+                        CooperativeLevel.Background | CooperativeLevel.NonExclusive);
+                    joystick.Acquire();
+
+                    // Wake-up polls outside the lock — this takes ~200ms per new device
+                    for (int w = 0; w < 10; w++)
                     {
-                        var guid     = new Guid(guidStr);
-                        var joystick = new Joystick(_directInput, guid);
-
-                        // Background non-exclusive: no window handle needed
-                        joystick.SetCooperativeLevel(
-                            IntPtr.Zero,
-                            CooperativeLevel.Background | CooperativeLevel.NonExclusive);
-
-                        joystick.Acquire();
-
-                        // Wake-up: paar polls zodat het device direct actuele waarden stuurt
-                        for (int w = 0; w < 10; w++)
-                        {
-                            try { joystick.Poll(); joystick.GetCurrentState(); }
-                            catch { }
-                            System.Threading.Thread.Sleep(20);
-                        }
-
-                        _openDevices[guidStr] = joystick;
+                        try { joystick.Poll(); joystick.GetCurrentState(); }
+                        catch { }
+                        System.Threading.Thread.Sleep(20);
                     }
-                    catch { /* device not available */ }
+
+                    lock (_devLock) _openDevices[guidStr] = joystick;
                 }
+                catch { /* device not available */ }
             }
         }
 
@@ -557,7 +560,7 @@ namespace BmsLightBridge.Services
 
         public int? GetAxisValue(string deviceGuid, JoystickAxis axis)
         {
-            // Gebruik gecachete waarde uit de poll loop — die zijn altijd actueel
+            // Use cached value from the poll loop — always up to date
             lock (_devLock)
             {
                 if (_axisCache.TryGetValue((deviceGuid, (int)axis), out int cached))
@@ -582,7 +585,10 @@ namespace BmsLightBridge.Services
         public void EnsureDeviceOpen(string deviceGuid)
         {
             lock (_devLock)
+            {
+                _pinnedGuids.Add(deviceGuid);   // mark as pinned so EnsureDevicesOpen won't close it
                 if (_openDevices.ContainsKey(deviceGuid)) return;
+            }
 
             if (!_dinputAvailable || _directInput == null) return;
             try

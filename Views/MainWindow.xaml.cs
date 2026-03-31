@@ -74,7 +74,7 @@ namespace BmsLightBridge.Views
         private void MenuAbout_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show(
-                "BMS Light Bridge v1.0.2\n\n" +
+                "BMS Light Bridge v1.0.5\n\n" +
                 "Bridges Falcon BMS shared memory data to physical cockpit hardware.\n" +
                 "Supports WinWing HID devices and Arduino-based lighting controllers.\n\n" +
                 "© 2024 RedMeKool — github.com/RedMeKool/BmsLightBridge",

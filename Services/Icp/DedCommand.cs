@@ -11,15 +11,18 @@ namespace BmsLightBridge.Services.Icp
     ///   Bytes 13-16 : DataBuffer length
     ///   Bytes 17+   : DataBuffer
     /// </summary>
-    internal class DedCommand
+    internal sealed class DedCommand
     {
         public const uint CMD_WRITE_DISPLAY_MEM = 0x0102;
         public const uint CMD_REFRESH_DISPLAY   = 0x0103;
 
-        public uint   ProductId   = 0x0000BF06;
-        public uint   CommandType = CMD_REFRESH_DISPLAY;
-        public uint   TimeStamp;
-        public byte[] DataBuffer  = Array.Empty<byte>();
+        /// <summary>Pre-allocated payload for CMD_REFRESH_DISPLAY — avoids a new byte[] on every 10 Hz frame.</summary>
+        public static readonly byte[] RefreshPayload = { 0 };
+
+        public uint   ProductId   { get; init; } = 0x0000BF06;
+        public uint   CommandType { get; init; } = CMD_REFRESH_DISPLAY;
+        public uint   TimeStamp   { get; init; }
+        public byte[] DataBuffer  { get; init; } = Array.Empty<byte>();
 
         /// <summary>Total serialised size of this command in bytes.</summary>
         public int SerializedSize => 17 + DataBuffer.Length;

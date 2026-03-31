@@ -79,17 +79,12 @@ namespace BmsLightBridge.ViewModels
             set => SetProperty(ref _isSelected, value);
         }
 
-        public string StatusText  => IsOn ? "ON" : "OFF";
-        public int    MappingCount => MappingRows.Count;
+        public string StatusText => IsOn ? "ON" : "OFF";
 
         public SignalViewModel(CockpitLight light)
         {
             Light = light;
-            MappingRows.CollectionChanged += (_, _) =>
-            {
-                OnPropertyChanged(nameof(IsMapped));
-                OnPropertyChanged(nameof(MappingCount));
-            };
+            MappingRows.CollectionChanged += (_, _) => OnPropertyChanged(nameof(IsMapped));
         }
     }
 
@@ -507,9 +502,8 @@ namespace BmsLightBridge.ViewModels
                 SetProperty(ref _isSyncing, value);
                 OnPropertyChanged(nameof(CanStart));
                 OnPropertyChanged(nameof(CanStop));
-                System.Windows.Application.Current?.Dispatcher.BeginInvoke(
-                    System.Windows.Threading.DispatcherPriority.Normal,
-                    new System.Action(System.Windows.Input.CommandManager.InvalidateRequerySuggested));
+                System.Windows.Application.Current?.Dispatcher.InvokeAsync(
+                    System.Windows.Input.CommandManager.InvalidateRequerySuggested);
             }
         }
 
@@ -638,7 +632,6 @@ namespace BmsLightBridge.ViewModels
         }
 
         // ── Collections ───────────────────────────────────────────────────
-        public ObservableCollection<SignalViewModel>        Signals                  { get; } = new();
         public ObservableCollection<CategoryGroup>          CategoryGroups           { get; } = new();
         private List<SignalViewModel>                       _allSignals              = new();
 
@@ -965,10 +958,6 @@ namespace BmsLightBridge.ViewModels
 
             var filteredList = filtered.ToList();
 
-            Signals.Clear();
-            foreach (var s in filteredList)
-                Signals.Add(s);
-
             // Rebuild CategoryGroups, preserving expanded/collapsed state.
             var expandedState = CategoryGroups.ToDictionary(g => g.Name, g => g.IsExpanded);
             CategoryGroups.Clear();
@@ -1000,8 +989,9 @@ namespace BmsLightBridge.ViewModels
             foreach (var device in WinWingService.EnumerateDevices())
                 AvailableWinWingDevices.Add(device);
 
+            var joysticks = _syncService.AxisBindings.EnumerateJoysticks();
             AvailableJoysticks.Clear();
-            foreach (var js in _syncService.AxisBindings.EnumerateJoysticks())
+            foreach (var js in joysticks)
                 AvailableJoysticks.Add(new JoystickDeviceViewModel { InstanceGuid = js.InstanceGuid, Name = js.Name });
 
             RebuildBrightnessChannels();
@@ -1012,7 +1002,7 @@ namespace BmsLightBridge.ViewModels
 
             _syncService.AxisBindings.UpdateBindings(_config.BrightnessChannels);
 
-            AxisToKeyTab?.RefreshJoysticks(_axisToKeyService.EnumerateJoysticks());
+            AxisToKeyTab?.RefreshJoysticks(joysticks);
             AxisToKeyTab?.PushToService();
 
             if (SelectedBrightnessDevice == null || !AvailableWinWingDevices.Contains(SelectedBrightnessDevice))
@@ -1105,7 +1095,7 @@ namespace BmsLightBridge.ViewModels
                         })
                         {
                             AxisBindingService = _syncService.AxisBindings,
-                            DispatchToUi       = a => System.Windows.Application.Current.Dispatcher.Invoke(a)
+                            DispatchToUi       = a => System.Windows.Application.Current?.Dispatcher.Invoke(a)
                         };
                         BrightnessChannels.Add(vm);
                         _brightnessLookup[(existing.ProductId, existing.LightIndex)] = vm;
@@ -1372,7 +1362,7 @@ namespace BmsLightBridge.ViewModels
                     mapping.ArduinoPin,
                     _config.Mappings);
 
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                 {
                     MessageBox.Show(log, "Arduino Diagnostic Result", MessageBoxButton.OK, MessageBoxImage.Information);
                     StatusMessage = "Diagnostic complete.";

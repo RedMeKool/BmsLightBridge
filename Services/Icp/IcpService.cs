@@ -1,37 +1,27 @@
-using System.IO;
-using System.IO.MemoryMappedFiles;
 using System.Timers;
 using BmsLightBridge.Models;
 
 namespace BmsLightBridge.Services.Icp
 {
     /// <summary>
-    /// Reads BMS DED data from shared memory and sends rendered frames to the
-    /// WinWing ViperAce ICP LCD at ~10 Hz.
+    /// Renders BMS DED data to the WinWing ViperAce ICP LCD at up to ~10 Hz.
     ///
-    /// Two independent timers run continuously regardless of sync state:
-    ///   - Device timer (2 s): opens the HID device when it appears, detects disconnect.
-    ///   - DED timer (100 ms): reads Area1 shared memory and sends frames when
-    ///     the display is enabled and BMS is connected.
+    /// DED bytes are supplied by SyncService (via BmsReader) — IcpService does not
+    /// open its own shared memory handle. A device timer (2 s) handles USB connect/disconnect.
     /// </summary>
     public class IcpService : IDisposable
     {
         // Shared memory — FalconSharedMemoryArea (Area1 / FlightData struct).
         // Offsets verified against BMS FlightData.h.
-        // MMF name is shared with BmsSharedMemoryReader via BmsSharedMemoryNames.FlightData.
-        private const int    AREA_READ_SIZE    = 512;  // 366 + 130 = 496 bytes needed
+        // Raw bytes are supplied by BmsReader via SyncService — IcpService has no MMF handle of its own.
         private const int    OFFSET_DED_LINES  = 236;  // char DEDLines[5][26]
         private const int    OFFSET_DED_INVERT = 366;  // char Invert[5][26]
         private const int    DED_LINE_LEN      = 26;
         private const int    DED_LINE_COUNT    = 5;
 
         private const int DEVICE_POLL_MS = 2000;
-        private const int DED_POLL_MS    = 100;
 
         private IcpHidDevice?             _device;
-        private MemoryMappedFile?         _mmf;
-        private MemoryMappedViewAccessor? _mmfAccessor;                          // reused across polls
-        private readonly byte[]           _readBuffer = new byte[AREA_READ_SIZE]; // reused across polls
         private readonly object           _lock       = new();
         private bool                      _isEnabled;
         private bool                      _isBmsConnected;
@@ -43,7 +33,6 @@ namespace BmsLightBridge.Services.Icp
             Enumerable.Repeat(new string(' ', 24), DED_LINE_COUNT).ToArray();
 
         private readonly System.Timers.Timer _deviceTimer;
-        private readonly System.Timers.Timer _dedTimer;
 
         public bool IsConnected { get; private set; }
 
@@ -55,10 +44,6 @@ namespace BmsLightBridge.Services.Icp
             _deviceTimer          = new System.Timers.Timer(DEVICE_POLL_MS) { AutoReset = true };
             _deviceTimer.Elapsed += OnDeviceTimerElapsed;
             _deviceTimer.Start();
-
-            _dedTimer          = new System.Timers.Timer(DED_POLL_MS) { AutoReset = true };
-            _dedTimer.Elapsed += OnDedTimerElapsed;
-            _dedTimer.Start();
         }
 
         // ── Timer callbacks ───────────────────────────────────────────────
@@ -71,15 +56,6 @@ namespace BmsLightBridge.Services.Icp
                     TryOpenDevice();
                 // Liveness is detected via write failures in SendFrame/TryClearDisplay;
                 // no need to re-enumerate HID devices every 2 s just to check presence.
-            }
-        }
-
-        private void OnDedTimerElapsed(object? sender, ElapsedEventArgs e)
-        {
-            lock (_lock)
-            {
-                if (_isEnabled && _isBmsConnected && _device != null)
-                    ReadAndSendDed();
             }
         }
 
@@ -122,7 +98,6 @@ namespace BmsLightBridge.Services.Icp
                 _isBmsConnected = connected;
                 if (!connected)
                 {
-                    CloseMmf();
                     _lastDed = Array.Empty<string>();
                     _lastInv = Array.Empty<string>();
                     if (_isEnabled && _device != null)
@@ -159,34 +134,30 @@ namespace BmsLightBridge.Services.Icp
 
         // ── DED read / send ───────────────────────────────────────────────
 
-        private void ReadAndSendDed()
+        /// <summary>
+        /// Called by SyncService with the raw shared memory buffer from BmsReader.
+        /// Replaces the former self-managed MMF poll — IcpService no longer opens its own MMF handle.
+        /// </summary>
+        public void ProcessDedBuffer(byte[] raw)
         {
-            if (_mmf == null)
+            lock (_lock)
             {
+                if (!_isEnabled || !_isBmsConnected || _device == null) return;
+
                 try
                 {
-                    _mmf         = MemoryMappedFile.OpenExisting(BmsSharedMemoryNames.FlightData);
-                    _mmfAccessor = _mmf.CreateViewAccessor(0, AREA_READ_SIZE, MemoryMappedFileAccess.Read);
+                    var ded = ReadLines(raw, OFFSET_DED_LINES);
+                    var inv = ReadInvertLines(raw, OFFSET_DED_INVERT);
+
+                    if (DedChanged(ded, inv))
+                    {
+                        _lastDed = ded;
+                        _lastInv = inv;
+                        SendFrame(ded, inv);
+                    }
                 }
-                catch { return; }
+                catch { }
             }
-
-            try
-            {
-                // Reuse the pre-allocated _readBuffer — no heap allocation per poll.
-                _mmfAccessor!.ReadArray(0, _readBuffer, 0, AREA_READ_SIZE);
-
-                var ded = ReadLines(_readBuffer, OFFSET_DED_LINES);
-                var inv = ReadInvertLines(_readBuffer, OFFSET_DED_INVERT);
-
-                if (DedChanged(ded, inv))
-                {
-                    _lastDed = ded;
-                    _lastInv = inv;
-                    SendFrame(ded, inv);
-                }
-            }
-            catch { CloseMmf(); }
         }
 
         private void SendFrame(string[] ded, string[] inv)
@@ -200,7 +171,7 @@ namespace BmsLightBridge.Services.Icp
                     new DedCommand { CommandType = DedCommand.CMD_WRITE_DISPLAY_MEM,
                         TimeStamp = 0xFFFF, DataBuffer = frameData },
                     new DedCommand { CommandType = DedCommand.CMD_REFRESH_DISPLAY,
-                        TimeStamp = 0xFFFF, DataBuffer = new byte[] { 0 } }
+                        TimeStamp = 0xFFFF, DataBuffer = DedCommand.RefreshPayload }
                 });
             }
             catch
@@ -215,14 +186,6 @@ namespace BmsLightBridge.Services.Icp
         {
             try { SendFrame(BlankDedLines, BlankDedLines); }
             catch { }
-        }
-
-        private void CloseMmf()
-        {
-            _mmfAccessor?.Dispose();
-            _mmfAccessor = null;
-            _mmf?.Dispose();
-            _mmf = null;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
@@ -290,8 +253,7 @@ namespace BmsLightBridge.Services.Icp
         public void Dispose()
         {
             _deviceTimer.Stop(); _deviceTimer.Dispose();
-            _dedTimer.Stop();    _dedTimer.Dispose();
-            lock (_lock) { TryClearDisplay(); CloseDevice(); CloseMmf(); }
+            lock (_lock) { TryClearDisplay(); CloseDevice(); }
             GC.SuppressFinalize(this);
         }
     }

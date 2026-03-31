@@ -7,10 +7,10 @@ namespace BmsLightBridge.Models
 
     public class CockpitLight
     {
-        public string Name     { get; set; } = "";
-        public string Category { get; set; } = "";
-        public int    BitField { get; set; } = 1;
-        public uint   BitMask  { get; set; }
+        public string Name     { get; init; } = "";
+        public string Category { get; init; } = "";
+        public int    BitField { get; init; } = 1;
+        public uint   BitMask  { get; init; }
 
         public CockpitLight(string name, string category, int bitField, uint bitMask)
         {
@@ -23,7 +23,7 @@ namespace BmsLightBridge.Models
 
     public static class BmsLights
     {
-        public static List<CockpitLight> All { get; } = new()
+        public static IReadOnlyList<CockpitLight> All { get; } = new List<CockpitLight>()
         {
             // === LIGHTBITS (BitField = 1) ===
             new("Master Caution",        "Eyebrow",       1, 0x00000001),
@@ -123,6 +123,7 @@ namespace BmsLightBridge.Models
             new("Inlet Icing",           "Caution Panel", 3, 0x20000000),
         };
 
-        public static IEnumerable<string> Categories => All.Select(l => l.Category).Distinct();
+        public static IReadOnlyList<string> Categories { get; } =
+            All.Select(l => l.Category).Distinct().ToList();
     }
 }

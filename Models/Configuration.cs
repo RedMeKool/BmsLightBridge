@@ -1,5 +1,5 @@
 using System.IO;
-using Newtonsoft.Json;
+using System.Text.Json;
 
 namespace BmsLightBridge.Models
 {
@@ -139,10 +139,8 @@ namespace BmsLightBridge.Models
 
         /// <summary>
         /// All WinWing product IDs recognised by BmsLightBridge.
-        /// Single authoritative source — used by ConfigurationManager to identify
-        /// known devices when pruning orphaned config entries.
-        /// Must be kept in sync with WinWingService.KnownDevices and
-        /// WinWingLightEntry.BrightnessSliderChannels.
+        /// Must be kept in sync with WinWingService.KnownDevices and WinWingLightEntry.
+        /// Used by ConfigurationManager to identify known devices when pruning orphaned config entries.
         /// </summary>
         public static readonly HashSet<int> KnownProductIds = new()
         {
@@ -207,13 +205,23 @@ namespace BmsLightBridge.Models
         private static readonly string ConfigPath = Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory, "config.json");
 
+        private static readonly JsonSerializerOptions ReadOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,   // tolerate configs written by older versions
+        };
+
+        private static readonly JsonSerializerOptions WriteOptions = new()
+        {
+            WriteIndented = true,
+        };
+
         public static AppConfiguration Load()
         {
             try
             {
                 if (File.Exists(ConfigPath))
                 {
-                    var config = JsonConvert.DeserializeObject<AppConfiguration>(File.ReadAllText(ConfigPath));
+                    var config = JsonSerializer.Deserialize<AppConfiguration>(File.ReadAllText(ConfigPath), ReadOptions);
                     return config ?? new AppConfiguration();
                 }
             }
@@ -230,7 +238,7 @@ namespace BmsLightBridge.Models
             // This ensures config.json is never left in a corrupt/partial state if the process
             // crashes or is killed mid-write.
             string tempPath = ConfigPath + ".tmp";
-            File.WriteAllText(tempPath, JsonConvert.SerializeObject(config, Formatting.Indented));
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(config, WriteOptions));
 
             // File.Replace requires the destination to already exist.
             // On first launch config.json does not yet exist, so fall back to a plain Move.
@@ -248,7 +256,7 @@ namespace BmsLightBridge.Models
         {
             try
             {
-                var config = JsonConvert.DeserializeObject<AppConfiguration>(File.ReadAllText(path));
+                var config = JsonSerializer.Deserialize<AppConfiguration>(File.ReadAllText(path), ReadOptions);
                 return config;
             }
             catch { return null; }
@@ -259,7 +267,7 @@ namespace BmsLightBridge.Models
         /// </summary>
         public static void ExportTo(AppConfiguration config, string path)
         {
-            File.WriteAllText(path, JsonConvert.SerializeObject(config, Formatting.Indented));
+            File.WriteAllText(path, JsonSerializer.Serialize(config, WriteOptions));
         }
 
         private static void PruneOrphanedEntries(AppConfiguration config)

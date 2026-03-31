@@ -68,14 +68,13 @@ namespace BmsLightBridge.ViewModels
 
         private AxisToKeyBindingViewModel CreateVm(AxisToKeyBinding model)
         {
-            var vm = new AxisToKeyBindingViewModel(model, () => { PushToService(); _saveConfig(); })
+            // AvailableJoysticks setter calls RestoreSelection automatically.
+            return new AxisToKeyBindingViewModel(model, () => { PushToService(); _saveConfig(); })
             {
-                KeyService        = _service,
-                DispatchToUi      = _dispatchToUi,
+                KeyService         = _service,
+                DispatchToUi       = _dispatchToUi,
                 AvailableJoysticks = AvailableJoysticks
             };
-            vm.RestoreSelection();
-            return vm;
         }
     }
 }

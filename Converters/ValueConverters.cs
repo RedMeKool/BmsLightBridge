@@ -70,12 +70,11 @@ namespace BmsLightBridge.Converters
     [ValueConversion(typeof(bool), typeof(Brush))]
     public class LightStatusBrushConverter : IValueConverter
     {
+        private static readonly SolidColorBrush OnBrush  = new(Color.FromRgb(255, 210, 50));
+        private static readonly SolidColorBrush OffBrush = new(Color.FromRgb(50, 50, 65));
+
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        {
-            if (value is bool isOn && isOn)
-                return new SolidColorBrush(Color.FromRgb(255, 210, 50));   // Geel/aan
-            return new SolidColorBrush(Color.FromRgb(50, 50, 65));          // Donker/uit
-        }
+            => (value is bool isOn && isOn) ? OnBrush : OffBrush;
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
             => throw new NotImplementedException();

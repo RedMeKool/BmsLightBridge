@@ -89,10 +89,11 @@ namespace BmsLightBridge.Services.Icp
                 }
             }
 
-            // Return a copy so the caller owns the buffer safely.
-            var result = new byte[_frameBuffer.Length];
-            _frameBuffer.CopyTo(result, 0);
-            return result;
+            // Return the shared static buffer directly.
+            // IMPORTANT: the caller must consume the data before the next Render() call.
+            // In practice this is safe because IcpService calls Render() and WriteDedCommands()
+            // sequentially on a single timer thread with no intervening yields.
+            return _frameBuffer;
         }
 
         // ----------------------------------------------------------------

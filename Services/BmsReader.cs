@@ -9,9 +9,16 @@ namespace BmsLightBridge.Services
 {
     public class LightsChangedEventArgs : EventArgs
     {
-        public uint LightBits  { get; init; }
-        public uint LightBits2 { get; init; }
-        public uint LightBits3 { get; init; }
+        public uint   LightBits  { get; init; }
+        public uint   LightBits2 { get; init; }
+        public uint   LightBits3 { get; init; }
+        /// <summary>True when at least one LightBits value has changed since the previous tick.</summary>
+        public bool   HasLightBitsChanged { get; init; }
+        /// <summary>
+        /// Raw copy of the shared memory bytes needed for DED rendering (offsets 0–511).
+        /// Supplied so IcpService can share this read rather than opening a second MMF handle.
+        /// </summary>
+        public byte[] RawBuffer  { get; init; } = Array.Empty<byte>();
     }
 
     public class BmsSharedMemoryReader : IDisposable
@@ -87,9 +94,11 @@ namespace BmsLightBridge.Services
             if (!IsConnected) return;
             LightsChanged?.Invoke(this, new LightsChangedEventArgs
             {
-                LightBits  = _lastBits1,
-                LightBits2 = _lastBits2,
-                LightBits3 = _lastBits3,
+                LightBits           = _lastBits1,
+                LightBits2          = _lastBits2,
+                LightBits3          = _lastBits3,
+                HasLightBitsChanged = true,
+                RawBuffer           = _readBuffer[.._readBuffer.Length],
             });
         }
 
@@ -161,19 +170,24 @@ namespace BmsLightBridge.Services
                     ConnectionChanged?.Invoke(this, true);
                 }
 
-                if (lb1 != _lastBits1 || lb2 != _lastBits2 || lb3 != _lastBits3)
+                bool bitsChanged = lb1 != _lastBits1 || lb2 != _lastBits2 || lb3 != _lastBits3;
+                if (bitsChanged)
                 {
                     _lastBits1 = lb1;
                     _lastBits2 = lb2;
                     _lastBits3 = lb3;
-
-                    LightsChanged?.Invoke(this, new LightsChangedEventArgs
-                    {
-                        LightBits  = lb1,
-                        LightBits2 = lb2,
-                        LightBits3 = lb3,
-                    });
                 }
+
+                // Always fire so IcpService receives the raw buffer for DED rendering.
+                // HasLightBitsChanged lets SyncService skip ProcessMappings when only DED changed.
+                LightsChanged?.Invoke(this, new LightsChangedEventArgs
+                {
+                    LightBits         = lb1,
+                    LightBits2        = lb2,
+                    LightBits3        = lb3,
+                    HasLightBitsChanged = bitsChanged,
+                    RawBuffer         = _readBuffer[..READ_SIZE],
+                });
             }
             catch (FileNotFoundException)
             {

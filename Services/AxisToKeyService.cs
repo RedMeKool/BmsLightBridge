@@ -55,9 +55,6 @@ namespace BmsLightBridge.Services
                                    System.Threading.Timeout.Infinite);
         }
 
-        public List<JoystickDeviceInfo> EnumerateJoysticks()
-            => _axisBindingService.EnumerateJoysticks();
-
         public void DetectAxis(string deviceGuid, int timeoutMs,
             Action<JoystickAxis> onDetected, Action onTimeout)
         {
@@ -117,16 +114,20 @@ namespace BmsLightBridge.Services
                 }
 
                 int delta = raw - prevRaw;
-                // Sensitivity 1-10: 1=grof (grote delta nodig), 10=gevoelig (kleine delta nodig)
+                // Sensitivity 1-10: 1=coarse (large delta needed), 10=sensitive (small delta needed)
                 int stepDelta = 6000 - (Math.Clamp(binding.Sensitivity, 1, 10) - 1) * 600; // 6000..600
 
                 if (Math.Abs(delta) < stepDelta) continue;
 
-                // Minimaal interval respecteren
+                // Dead zone: ignore movement near the physical centre of the axis
+                int deadZoneUnits = (int)(binding.DeadZone * 65535);
+                if (Math.Abs(raw - 32767) < deadZoneUnits) continue;
+
+                // Respect per-binding repeat delay
                 double elapsedMs = _lastFireTime.TryGetValue(binding.Id, out var last)
                     ? (now - last).TotalMilliseconds : double.MaxValue;
 
-                if (elapsedMs < 150) continue;
+                if (elapsedMs < binding.RepeatDelayMs) continue;
 
                 int vk = delta > 0 ? binding.KeyUp : binding.KeyDown;
                 bool ctrl  = delta > 0 ? binding.KeyUpCtrl  : binding.KeyDownCtrl;

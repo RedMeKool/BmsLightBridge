@@ -8,7 +8,7 @@
     xmlns:conv="clr-namespace:BmsLightBridge.Converters"
     xmlns:models="clr-namespace:BmsLightBridge.Models"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
-    Title="BMS Light Bridge v1.0.4"
+    Title="BMS Light Bridge v1.0.5"
     Height="780" Width="1280"
     MinHeight="600" MinWidth="900"
     Background="{StaticResource BackgroundBrush}"
@@ -1283,7 +1283,7 @@
                                                             </Grid.ColumnDefinitions>
                                                             <!-- Manual mode: interactive slider bound to FixedBrightness -->
                                                             <Slider Grid.Column="0" Minimum="0" Maximum="255"
-                                                                    Value="{Binding FixedBrightness, Mode=TwoWay}"
+                                                                    Value="{Binding FixedBrightness, Mode=TwoWay, Delay=300}"
                                                                     IsEnabled="{Binding ModeIsManual}"
                                                                     VerticalAlignment="Center" Margin="0,0,8,0"
                                                                     ToolTip="Brightness level (0 = off, 255 = maximum)">

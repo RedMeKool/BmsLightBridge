@@ -14,6 +14,7 @@ namespace BmsLightBridge.Services
 
         // ── Known devices ─────────────────────────────────────────────────
 
+        /// <summary>Maps WinWing product ID to display name. Single source of truth for all PID lists.</summary>
         private static readonly Dictionary<ushort, string> KnownDevices = new()
         {
             { 0xBE68, "Orion Throttle Base II + F16 Grip" },
@@ -24,6 +25,7 @@ namespace BmsLightBridge.Services
             { 0xBF05, "CarrierAce PTO 2"                  },
             { 0xBF06, "ViperAce ICP"                      },
         };
+
 
         // ── State ─────────────────────────────────────────────────────────
 

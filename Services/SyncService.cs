@@ -18,12 +18,10 @@ namespace BmsLightBridge.Services
         public event EventHandler<Dictionary<string, bool>>? LightStatesUpdated;
         public event EventHandler<bool>?                     IcpConnectionChanged;
 
-        /// <remarks>Set internally; not currently consumed outside SyncService.
-        /// Kept public in case external status checks are added later.</remarks>
-        public bool IsBmsConnected { get; private set; }
+        private bool IsBmsConnected;
         public bool IsSyncing      { get; private set; }
 
-        public Dictionary<string, bool> CurrentLightStates { get; } = new();
+        private readonly Dictionary<string, bool> CurrentLightStates = new();
 
         private AppConfiguration? _activeConfig;
 
@@ -170,6 +168,13 @@ namespace BmsLightBridge.Services
 
         private void OnLightsChanged(object? sender, LightsChangedEventArgs e)
         {
+            // Forward raw buffer to IcpService so it can read DED data without its own MMF handle.
+            if (e.RawBuffer.Length > 0)
+                _icpService.ProcessDedBuffer(e.RawBuffer);
+
+            // Skip mapping processing and UI dispatch when light bits haven't changed.
+            if (!e.HasLightBitsChanged) return;
+
             foreach (var light in BmsLights.All)
             {
                 uint bits = light.BitField switch
@@ -182,10 +187,11 @@ namespace BmsLightBridge.Services
                 CurrentLightStates[light.Name] = (bits & light.BitMask) != 0;
             }
 
-            if (IsSyncing && _activeConfig != null)
+            var cfg = _activeConfig;
+            if (IsSyncing && cfg != null)
             {
-                ArduinoOutput.ProcessMappings(_activeConfig.Mappings, CurrentLightStates);
-                _winWingService.ProcessMappings(_activeConfig.Mappings, CurrentLightStates);
+                ArduinoOutput.ProcessMappings(cfg.Mappings, CurrentLightStates);
+                _winWingService.ProcessMappings(cfg.Mappings, CurrentLightStates);
             }
 
             // Take a snapshot before crossing to the UI thread: the background timer
