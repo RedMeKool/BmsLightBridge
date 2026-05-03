@@ -125,32 +125,15 @@ namespace BmsLightBridge.Models
     }
 
     /// <summary>
-    /// Defines logical device groups — multiple physical USB HID interfaces
-    /// presented as a single controller in the UI.
+    /// Registry of all WinWing product IDs recognised by BmsLightBridge.
+    /// Used by ConfigurationManager to identify known devices when pruning orphaned config entries,
+    /// and by WinWingLightEntry to resolve brightness slider channels.
     /// </summary>
     public static class WinWingDeviceGroups
     {
-        /// <summary>Maps a display name to the list of product IDs that form the group.</summary>
-        public static readonly Dictionary<string, List<ushort>> Groups = new();
-
-        public static string? GetGroupName(ushort pid)
-        {
-            foreach (var (name, pids) in Groups)
-                if (pids.Contains(pid)) return name;
-            return null;
-        }
-
-        public static IEnumerable<ushort> GetGroupPids(ushort pid)
-        {
-            foreach (var (_, pids) in Groups)
-                if (pids.Contains(pid)) return pids;
-            return new[] { pid };
-        }
-
         /// <summary>
         /// All WinWing product IDs recognised by BmsLightBridge.
         /// Must be kept in sync with WinWingService.KnownDevices and WinWingLightEntry.
-        /// Used by ConfigurationManager to identify known devices when pruning orphaned config entries.
         /// </summary>
         public static readonly HashSet<int> KnownProductIds = new()
         {
@@ -244,18 +227,22 @@ namespace BmsLightBridge.Models
         {
             PruneOrphanedEntries(config);
 
-            // Write atomically: serialize to a temp file first, then replace the real config.
-            // This ensures config.json is never left in a corrupt/partial state if the process
-            // crashes or is killed mid-write.
             string tempPath = ConfigPath + ".tmp";
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(config, WriteOptions));
+            try
+            {
+                File.WriteAllText(tempPath, JsonSerializer.Serialize(config, WriteOptions));
 
-            // File.Replace requires the destination to already exist.
-            // On first launch config.json does not yet exist, so fall back to a plain Move.
-            if (File.Exists(ConfigPath))
-                File.Replace(tempPath, ConfigPath, null);
-            else
-                File.Move(tempPath, ConfigPath);
+                if (File.Exists(ConfigPath))
+                    File.Replace(tempPath, ConfigPath, null);
+                else
+                    File.Move(tempPath, ConfigPath);
+            }
+            catch
+            {
+                // Clean up the temp file so it does not linger on disk after a failed write.
+                try { File.Delete(tempPath); } catch { }
+                throw;
+            }
         }
 
         /// <summary>

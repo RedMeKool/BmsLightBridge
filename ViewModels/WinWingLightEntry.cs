@@ -64,13 +64,12 @@ namespace BmsLightBridge.ViewModels
         };
 
         // ----------------------------------------------------------------
-        // Device groups — delegates to WinWingDeviceGroups in Models
+        // Device groups — no grouping currently defined; each PID stands alone.
+        // These methods exist for forward compatibility if grouping is added later.
         // ----------------------------------------------------------------
-        public static string? GetGroupName(ushort pid)
-            => WinWingDeviceGroups.GetGroupName(pid);
+        public static string? GetGroupName(ushort pid) => null;
 
-        public static IEnumerable<ushort> GetGroupPids(ushort pid)
-            => WinWingDeviceGroups.GetGroupPids(pid);
+        public static IEnumerable<ushort> GetGroupPids(ushort pid) => new[] { pid };
 
         // ----------------------------------------------------------------
         // Brightness slider channels per device (shown in Brightness tab)

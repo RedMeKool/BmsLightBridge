@@ -944,7 +944,9 @@ namespace BmsLightBridge.ViewModels
                 }
             }
 
-            // For every known device: attempt COM port recovery and refresh USB identifiers
+            // Single USB scan for all boards — avoids one registry+WMI scan per board
+            var usbPorts = UsbSerialPortHelper.GetAllUsbSerialPorts();
+
             foreach (var dev in _config.ArduinoDevices)
             {
                 string oldPort = dev.ComPort;
@@ -952,7 +954,6 @@ namespace BmsLightBridge.ViewModels
 
                 if (recovered != null && !string.Equals(recovered, oldPort, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Update all mappings that referenced the old COM port
                     foreach (var m in _config.Mappings
                         .Where(m => m.TargetDevice == DeviceType.Arduino &&
                                     string.Equals(m.ArduinoComPort, oldPort, StringComparison.OrdinalIgnoreCase)))
@@ -962,15 +963,20 @@ namespace BmsLightBridge.ViewModels
                     changed = true;
                 }
 
-                // Always refresh USB identifiers if the board is currently attached
-                var usbInfo = UsbSerialPortHelper.GetInfoForPort(dev.ComPort);
-                if (usbInfo != null)
+                // Refresh USB identifiers only when the board is attached and values have changed
+                if (usbPorts.TryGetValue(dev.ComPort, out var usbInfo))
                 {
-                    dev.UsbVid          = usbInfo.Vid;
-                    dev.UsbPid          = usbInfo.Pid;
-                    dev.UsbSerialNumber = usbInfo.SerialNumber;
-                    dev.FriendlyName    = usbInfo.FriendlyName;
-                    changed = true;
+                    if (dev.UsbVid          != usbInfo.Vid          ||
+                        dev.UsbPid          != usbInfo.Pid          ||
+                        dev.UsbSerialNumber != usbInfo.SerialNumber  ||
+                        dev.FriendlyName    != usbInfo.FriendlyName)
+                    {
+                        dev.UsbVid          = usbInfo.Vid;
+                        dev.UsbPid          = usbInfo.Pid;
+                        dev.UsbSerialNumber = usbInfo.SerialNumber;
+                        dev.FriendlyName    = usbInfo.FriendlyName;
+                        changed = true;
+                    }
                 }
             }
 

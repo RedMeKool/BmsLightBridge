@@ -182,11 +182,7 @@ namespace BmsLightBridge.Services.Icp
             }
         }
 
-        private void TryClearDisplay()
-        {
-            try { SendFrame(BlankDedLines, BlankDedLines); }
-            catch { }
-        }
+        private void TryClearDisplay() => SendFrame(BlankDedLines, BlankDedLines);
 
         // ── Helpers ───────────────────────────────────────────────────────
 

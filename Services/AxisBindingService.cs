@@ -209,7 +209,7 @@ namespace BmsLightBridge.Services
 
                 int raw = GetAxisValue(state, ab.Axis);
 
-                // Als joystick nog niet actief is (ESP32 geeft 32767), gebruik laatste bekende waarde
+                // If joystick is not yet active (ESP32 returns 32767), use last known value
                 if (raw == 32767 && ab.LastRawValue >= 0)
                     raw = ab.LastRawValue;
                 else if (raw != 32767)
@@ -573,7 +573,7 @@ namespace BmsLightBridge.Services
             GC.SuppressFinalize(this);
         }
 
-        // ── Publieke hulpmethodes voor AxisToKeyService ───────────────────
+        // ── Public helpers for AxisToKeyService ───────────────────────────
 
         public int? GetAxisValue(string deviceGuid, JoystickAxis axis)
         {

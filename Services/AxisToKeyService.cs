@@ -43,7 +43,7 @@ namespace BmsLightBridge.Services
 
             lock (_bindLock) _activeBindings = active;
 
-            // Zorg dat elk device open is via AxisBindingService
+            // Ensure each device is open via AxisBindingService
             foreach (var b in active)
                 _axisBindingService.EnsureDeviceOpen(b.DeviceInstanceGuid);
 
@@ -146,7 +146,7 @@ namespace BmsLightBridge.Services
         private const uint KEYEVENTF_SCANCODE = 0x0008;
         private const uint KEYEVENTF_KEYUP    = 0x0002;
 
-        // VK naar DIK scancode mapping
+        // VK to DIK scancode mapping
         private static readonly Dictionary<int, byte> VkToDik = new()
         {
             // Letters A-Z

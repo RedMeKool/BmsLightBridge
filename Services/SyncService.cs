@@ -6,44 +6,43 @@ namespace BmsLightBridge.Services
     public class SyncService : IDisposable
     {
         private readonly BmsSharedMemoryReader _bmsReader;
-        public  readonly ArduinoService        ArduinoOutput;
+        private readonly ArduinoService        _arduinoOutput;
         private readonly WinWingService        _winWingService;
         private readonly IcpService            _icpService;
-        public  readonly AxisBindingService    AxisBindings;
+        private readonly AxisBindingService    _axisBindings;
 
-        public IcpService IcpOutput => _icpService;
+        public ArduinoService     ArduinoOutput => _arduinoOutput;
+        public AxisBindingService AxisBindings  => _axisBindings;
+        public IcpService         IcpOutput     => _icpService;
 
         public event EventHandler<bool>?                     BmsConnectionChanged;
         public event EventHandler<bool>?                     SyncStateChanged;
         public event EventHandler<Dictionary<string, bool>>? LightStatesUpdated;
         public event EventHandler<bool>?                     IcpConnectionChanged;
 
-        private bool IsBmsConnected;
-        public bool IsSyncing      { get; private set; }
+        private bool _isBmsConnected;
+        public bool IsSyncing { get; private set; }
 
-        private readonly Dictionary<string, bool> CurrentLightStates = new();
+        private readonly Dictionary<string, bool> _currentLightStates = new();
 
         private AppConfiguration? _activeConfig;
 
         public SyncService()
         {
             _bmsReader      = new BmsSharedMemoryReader();
-            ArduinoOutput   = new ArduinoService();
+            _arduinoOutput  = new ArduinoService();
             _winWingService = new WinWingService();
             _icpService     = new IcpService();
-            AxisBindings    = new AxisBindingService();
+            _axisBindings   = new AxisBindingService();
 
             _icpService.ConnectionChanged += OnIcpConnectionChanged;
             _bmsReader.ConnectionChanged  += OnBmsConnectionChanged;
             _bmsReader.LightsChanged      += OnLightsChanged;
 
-            // Route axis brightness changes directly to the WinWing service.
-            AxisBindings.BrightnessChanged += (pid, lightIndex, brightness) =>
+            _axisBindings.BrightnessChanged += (pid, lightIndex, brightness) =>
                 _winWingService.SetBrightness(pid, lightIndex, brightness);
 
-            AxisBindings.Start();
-
-            // Start slow polling so the connection indicator works before the user presses Start.
+            _axisBindings.Start();
             _bmsReader.Start(500);
         }
 
@@ -84,7 +83,7 @@ namespace BmsLightBridge.Services
             {
                 System.Threading.Tasks.Task.Run(() =>
                     System.Threading.Tasks.Parallel.ForEach(arduinoGroups, group =>
-                        ArduinoOutput.Connect(group.ComPort, group.BaudRate, group.ResetDelayMs, group.DtrEnable, group.Mappings)));
+                        _arduinoOutput.Connect(group.ComPort, group.BaudRate, group.ResetDelayMs, group.DtrEnable, group.Mappings)));
             }
         }
 
@@ -134,9 +133,9 @@ namespace BmsLightBridge.Services
 
             _bmsReader.ChangeInterval(500);
 
-            ArduinoOutput.AllOff(config.Mappings);
+            _arduinoOutput.AllOff();
             _winWingService.AllOff(config.Mappings);
-            ArduinoOutput.Disconnect();
+            _arduinoOutput.Disconnect();
 
             _icpService.Disconnect();
 
@@ -160,7 +159,7 @@ namespace BmsLightBridge.Services
 
         private void OnBmsConnectionChanged(object? sender, bool connected)
         {
-            IsBmsConnected = connected;
+            _isBmsConnected = connected;
             _icpService.SetBmsConnected(connected);
             System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
                 BmsConnectionChanged?.Invoke(this, connected));
@@ -168,11 +167,9 @@ namespace BmsLightBridge.Services
 
         private void OnLightsChanged(object? sender, LightsChangedEventArgs e)
         {
-            // Forward raw buffer to IcpService so it can read DED data without its own MMF handle.
             if (e.RawBuffer.Length > 0)
                 _icpService.ProcessDedBuffer(e.RawBuffer);
 
-            // Skip mapping processing and UI dispatch when light bits haven't changed.
             if (!e.HasLightBitsChanged) return;
 
             foreach (var light in BmsLights.All)
@@ -184,21 +181,17 @@ namespace BmsLightBridge.Services
                     3 => e.LightBits3,
                     _ => 0
                 };
-                CurrentLightStates[light.Name] = (bits & light.BitMask) != 0;
+                _currentLightStates[light.Name] = (bits & light.BitMask) != 0;
             }
 
             var cfg = _activeConfig;
             if (IsSyncing && cfg != null)
             {
-                ArduinoOutput.ProcessMappings(cfg.Mappings, CurrentLightStates);
-                _winWingService.ProcessMappings(cfg.Mappings, CurrentLightStates);
+                _arduinoOutput.ProcessMappings(cfg.Mappings, _currentLightStates);
+                _winWingService.ProcessMappings(cfg.Mappings, _currentLightStates);
             }
 
-            // Take a snapshot before crossing to the UI thread: the background timer
-            // continues writing CurrentLightStates on the next tick, while InvokeAsync
-            // delivers the event asynchronously — without a snapshot both threads would
-            // read/write the same dictionary concurrently.
-            var snapshot = new Dictionary<string, bool>(CurrentLightStates);
+            var snapshot = new Dictionary<string, bool>(_currentLightStates);
             System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
                 LightStatesUpdated?.Invoke(this, snapshot));
         }
@@ -267,7 +260,7 @@ namespace BmsLightBridge.Services
 
         public void FireTestOutput(AppConfiguration config, Dictionary<string, bool> testStates)
         {
-            ArduinoOutput.ProcessMappings(config.Mappings, testStates);
+            _arduinoOutput.ProcessMappings(config.Mappings, testStates);
             _winWingService.ProcessMappings(config.Mappings, testStates);
         }
 
@@ -276,10 +269,10 @@ namespace BmsLightBridge.Services
         public void Dispose()
         {
             _bmsReader.Dispose();
-            ArduinoOutput.Dispose();
+            _arduinoOutput.Dispose();
             _winWingService.Dispose();
             _icpService.Dispose();
-            AxisBindings.Dispose();
+            _axisBindings.Dispose();
             GC.SuppressFinalize(this);
         }
     }

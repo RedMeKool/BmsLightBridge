@@ -70,21 +70,8 @@ namespace BmsLightBridge.Services
                     if (!KnownDevices.ContainsKey(pid)) continue;
                     if (addedPids.Contains(pid)) continue;
 
-                    var groupName = WinWingDeviceGroups.GetGroupName(pid);
-                    if (groupName != null)
-                    {
-                        var groupPids = WinWingDeviceGroups.Groups[groupName];
-                        if (addedPids.Contains(groupPids[0])) continue;
-
-                        result.Add(new WinWingDevice { ProductId = groupPids[0], Name = groupName });
-                        foreach (var gPid in groupPids)
-                            addedPids.Add(gPid);
-                    }
-                    else
-                    {
-                        result.Add(new WinWingDevice { ProductId = pid, Name = KnownDevices[pid] });
-                        addedPids.Add(pid);
-                    }
+                    result.Add(new WinWingDevice { ProductId = pid, Name = KnownDevices[pid] });
+                    addedPids.Add(pid);
                 }
             }
             catch { /* device enumeration not available */ }

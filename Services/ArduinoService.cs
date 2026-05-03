@@ -125,16 +125,10 @@ namespace BmsLightBridge.Services
         {
             lock (_lock)
             {
-                // Already open — refresh the pin table and resend setup.
-                // Invalidate LastMode so ProcessMappings unconditionally sends a fresh
-                // mode frame on the next call, even if the new state equals the old one.
                 if (_ports.TryGetValue(comPort, out var existing) && existing.Port.IsOpen)
                 {
                     BuildPinTable(existing, mappings);
                     SendSetup(existing);
-                    // Fill LastMode with a sentinel value that can never equal a real bool,
-                    // achieved by allocating a fresh array — the next ProcessPort call will
-                    // always detect a difference and send the current state immediately.
                     existing.LastMode = new bool[existing.Pins.Length];
                     Array.Fill(existing.LastMode, true);
                     return true;
@@ -142,48 +136,47 @@ namespace BmsLightBridge.Services
 
                 existing?.Dispose();
                 _ports.Remove(comPort);
+            }
 
-                try
+            // Open the port and wait for the board to boot outside the lock —
+            // reset delays (up to 2000 ms) must not block other ports from being polled.
+            try
+            {
+                bool openWithDtr = dtrEnable && resetDelayMs > 0;
+
+                var serial = new SerialPort(comPort, baudRate)
                 {
-                    // When resetDelayMs is explicitly 0 for a board that normally resets on DTR,
-                    // open without DTR first, wait briefly, then enable DTR — this avoids the
-                    // reset that DTR triggers on Arduino Leonardo / similar boards.
-                    bool openWithDtr = dtrEnable && resetDelayMs > 0;
+                    DataBits     = 8,
+                    Parity       = Parity.None,
+                    StopBits     = StopBits.One,
+                    WriteTimeout = 2000,
+                    Encoding     = Encoding.UTF8,
+                    DtrEnable    = openWithDtr,
+                    RtsEnable    = false
+                };
 
-                    var serial = new SerialPort(comPort, baudRate)
-                    {
-                        DataBits     = 8,
-                        Parity       = Parity.None,
-                        StopBits     = StopBits.One,
-                        WriteTimeout = 2000,
-                        Encoding     = Encoding.UTF8,
-                        DtrEnable    = openWithDtr,
-                        RtsEnable    = false
-                    };
+                serial.Open();
 
-                    serial.Open();
+                if (resetDelayMs > 0)
+                    System.Threading.Thread.Sleep(resetDelayMs);
+                else if (dtrEnable)
+                {
+                    System.Threading.Thread.Sleep(50);
+                    serial.DtrEnable = true;
+                }
 
-                    if (resetDelayMs > 0)
-                        System.Threading.Thread.Sleep(resetDelayMs);
-                    else if (dtrEnable)
-                    {
-                        // Re-enable DTR after opening so the board sees a valid serial connection,
-                        // but skip the reset delay since the board is already running.
-                        System.Threading.Thread.Sleep(50);
-                        serial.DtrEnable = true;
-                    }
-
+                lock (_lock)
+                {
                     var state = new PortState(serial, comPort);
                     BuildPinTable(state, mappings);
                     SendSetup(state);
-
                     _ports[comPort] = state;
-                    return true;
                 }
-                catch
-                {
-                    return false;
-                }
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -303,14 +296,13 @@ namespace BmsLightBridge.Services
         }
 
         /// <summary>Turns all lights off on all open ports.</summary>
-        public void AllOff(IEnumerable<SignalMapping> mappings)
+        public void AllOff()
         {
             lock (_lock)
             {
                 foreach (var state in _ports.Values)
                 {
                     if (!state.Port.IsOpen || state.Pins.Length == 0) continue;
-                    // Reuse LastMode: clear it in-place and send.
                     Array.Clear(state.LastMode, 0, state.LastMode.Length);
                     SendMode(state, state.LastMode);
                 }
@@ -383,12 +375,12 @@ namespace BmsLightBridge.Services
 
                 string fullSetup = "{\"setup_LightBit\":{\"pins\":[" + string.Join(",", allPins) + "]}}";
                 log.AppendLine("Sending SETUP: " + fullSetup);
-                p.Write(new byte[] { 0xC0 }, 0, 1);
+                p.Write(FrameMarker, 0, 1);
                 p.Write(fullSetup + "\r");
                 System.Threading.Thread.Sleep(300);
 
                 string allOff = "{\"set_LightBit\":{\"mode\":[" + string.Join(",", Enumerable.Repeat("0", allPins.Length)) + "]}}";
-                p.Write(new byte[] { 0xC0 }, 0, 1);
+                p.Write(FrameMarker, 0, 1);
                 p.Write(allOff + "\r");
                 System.Threading.Thread.Sleep(100);
 
@@ -397,13 +389,13 @@ namespace BmsLightBridge.Services
                 string onFrame = "{\"set_LightBit\":{\"mode\":[" + string.Join(",", modeArr) + "]}}";
 
                 log.AppendLine($"Sending ON (index {pinIndex} = pin {pin}): " + onFrame);
-                p.Write(new byte[] { 0xC0 }, 0, 1);
+                p.Write(FrameMarker, 0, 1);
                 p.Write(onFrame + "\r");
                 log.AppendLine("Light should be ON for 2 seconds...");
                 System.Threading.Thread.Sleep(2000);
 
                 log.AppendLine("Sending all OFF.");
-                p.Write(new byte[] { 0xC0 }, 0, 1);
+                p.Write(FrameMarker, 0, 1);
                 p.Write(allOff + "\r");
                 log.AppendLine("Done.");
 
@@ -431,11 +423,13 @@ namespace BmsLightBridge.Services
 
         // ── Low-level write ───────────────────────────────────────────────
 
+        private static readonly byte[] FrameMarker = { 0xC0 };
+
         private static void WriteFrame(PortState state, string frame)
         {
             try
             {
-                state.Port.Write(new byte[] { 0xC0 }, 0, 1);
+                state.Port.Write(FrameMarker, 0, 1);
                 state.Port.Write(frame + "\r");
             }
             catch { /* write errors are non-fatal; next poll will retry */ }
