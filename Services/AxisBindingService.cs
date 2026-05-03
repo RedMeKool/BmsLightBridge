@@ -83,6 +83,13 @@ namespace BmsLightBridge.Services
 
         // ── Public API ────────────────────────────────────────────────────
 
+        /// <summary>
+        /// The underlying DirectInput instance, exposed so other services can reuse it
+        /// for device enumeration without creating a second instance.
+        /// Null when DirectInput is unavailable on this system.
+        /// </summary>
+        public SharpDX.DirectInput.DirectInput? DirectInputInstance => _directInput;
+
         /// <summary>Returns all currently attached joystick / gamepad devices.</summary>
         public List<JoystickDeviceInfo> EnumerateJoysticks()
         {
@@ -511,7 +518,17 @@ namespace BmsLightBridge.Services
             {
                 try
                 {
-                    var guid     = new Guid(guidStr);
+                    var guid = new Guid(guidStr);
+
+                    // Pre-check: only try to open the device when it is actually attached.
+                    // This prevents SharpDX from throwing a SharpDXException (DIERR_DEVICENOTREG /
+                    // DIERR_NOTFOUND) every poll cycle when a configured joystick is disconnected.
+                    bool attached = _directInput!
+                        .GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly)
+                        .Any(d => d.InstanceGuid == guid);
+
+                    if (!attached) continue;
+
                     var joystick = new Joystick(_directInput, guid);
 
                     joystick.SetCooperativeLevel(
@@ -567,7 +584,7 @@ namespace BmsLightBridge.Services
                     return cached;
             }
 
-            // Nog geen cache — probeer direct te lezen
+            // No cached value yet — try reading directly from the open device
             Joystick? js;
             lock (_devLock)
                 if (!_openDevices.TryGetValue(deviceGuid, out js)) return null;
@@ -586,14 +603,23 @@ namespace BmsLightBridge.Services
         {
             lock (_devLock)
             {
-                _pinnedGuids.Add(deviceGuid);   // mark as pinned so EnsureDevicesOpen won't close it
+                _pinnedGuids.Add(deviceGuid);
                 if (_openDevices.ContainsKey(deviceGuid)) return;
             }
 
             if (!_dinputAvailable || _directInput == null) return;
             try
             {
-                var js = new Joystick(_directInput, new Guid(deviceGuid));
+                var guid = new Guid(deviceGuid);
+
+                // Pre-check: avoid SharpDXException when the device is not attached
+                bool attached = _directInput
+                    .GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly)
+                    .Any(d => d.InstanceGuid == guid);
+
+                if (!attached) return;
+
+                var js = new Joystick(_directInput, guid);
                 js.SetCooperativeLevel(IntPtr.Zero,
                     CooperativeLevel.Background | CooperativeLevel.NonExclusive);
                 js.Acquire();

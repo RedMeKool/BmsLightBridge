@@ -29,13 +29,23 @@ namespace BmsLightBridge.ViewModels
         public SignalMapping Mapping       { get; }
         public RelayCommand  DeleteCommand { get; }
 
-        /// <summary>Eerste regel: apparaatnaam (Arduino COM poort of WinWing controllernaam).</summary>
-        public string DeviceLabel =>
-            Mapping.TargetDevice == DeviceType.Arduino
-                ? $"Arduino  {Mapping.ArduinoComPort}"
-                : $"WinWing  {Mapping.WinWingDeviceName}";
+        /// <summary>First line: device name. For Arduino: friendly name when available, otherwise "Arduino".</summary>
+        public string DeviceLabel
+        {
+            get
+            {
+                if (Mapping.TargetDevice == DeviceType.Arduino)
+                {
+                    string name = Mapping.ArduinoDeviceName;
+                    return string.IsNullOrEmpty(name)
+                        ? $"Arduino  {Mapping.ArduinoComPort}"
+                        : $"{name}  {Mapping.ArduinoComPort}";
+                }
+                return $"WinWing  {Mapping.WinWingDeviceName}";
+            }
+        }
 
-        /// <summary>Tweede regel: de lamp of pin — altijd prominent zichtbaar.</summary>
+        /// <summary>Second line: the lamp name or pin — always prominently visible.</summary>
         public string OutputLabel =>
             Mapping.TargetDevice == DeviceType.Arduino
                 ? $"Pin {Mapping.ArduinoPin}"
@@ -48,6 +58,9 @@ namespace BmsLightBridge.ViewModels
             Mapping       = mapping;
             DeleteCommand = new RelayCommand(() => onDelete(this));
         }
+
+        public new void OnPropertyChanged(string propertyName)
+            => base.OnPropertyChanged(propertyName);
     }
 
     /// <summary>UI representation of a BMS signal with its associated mappings.</summary>
@@ -463,6 +476,18 @@ namespace BmsLightBridge.ViewModels
             Enum.GetValues<Models.JoystickAxis>().ToList();
     }
 
+    /// <summary>
+    /// ViewModel for one COM port entry in the dropdown.
+    /// Holds both the raw port name (e.g. "COM3") and a display name that includes
+    /// the USB device friendly name where available (e.g. "COM3  —  Arduino Leonardo").
+    /// </summary>
+    public class ComPortViewModel
+    {
+        public string ComPort     { get; init; } = "";
+        public string DisplayName { get; init; } = "";
+        public override string ToString() => DisplayName;
+    }
+
     /// <summary>Main ViewModel — manages application state, configuration, and sync lifecycle.</summary>
     public class MainViewModel : BaseViewModel, IDisposable
     {
@@ -636,7 +661,12 @@ namespace BmsLightBridge.ViewModels
         private List<SignalViewModel>                       _allSignals              = new();
 
         public ObservableCollection<string>                 Categories               { get; } = new();
-        public ObservableCollection<string>                 AvailableComPorts        { get; } = new();
+
+        /// <summary>
+        /// COM port entries for the dropdown. Each entry holds the raw port name and a display
+        /// name that includes the USB device friendly name, e.g. "COM3  —  Arduino Leonardo".
+        /// </summary>
+        public ObservableCollection<ComPortViewModel>       AvailableComPorts        { get; } = new();
         public ObservableCollection<Models.WinWingDevice>   AvailableWinWingDevices  { get; } = new();
         public bool HasWinWingDevices => AvailableWinWingDevices.Count > 0;
 
@@ -669,11 +699,11 @@ namespace BmsLightBridge.ViewModels
         }
 
         // ── Mapping editor properties ─────────────────────────────────────
-        private DeviceType            _editorDeviceType = DeviceType.Arduino;
-        private string                _editorComPort    = "";
-        private int                   _editorPin        = 13;
+        private DeviceType            _editorDeviceType  = DeviceType.Arduino;
+        private ComPortViewModel?     _editorComPortVm;
+        private int                   _editorPin         = 13;
         private Models.WinWingDevice? _editorWinWingDevice;
-        private int                   _editorLightIndex = 0;
+        private int                   _editorLightIndex  = 0;
 
         // Board-level settings (per COM port, stored in ArduinoDevices)
         private int  _boardBaudRate     = 115200;
@@ -698,11 +728,23 @@ namespace BmsLightBridge.ViewModels
             set { if (value) EditorDeviceType = DeviceType.WinWing; }
         }
 
-        public string EditorComPort
+        /// <summary>
+        /// Selected COM port entry — holds both raw port name and display name.
+        /// Setting this also loads board settings for that port.
+        /// </summary>
+        public ComPortViewModel? EditorComPortVm
         {
-            get => _editorComPort;
-            set { SetProperty(ref _editorComPort, value); LoadBoardSettings(value); }
+            get => _editorComPortVm;
+            set
+            {
+                SetProperty(ref _editorComPortVm, value);
+                OnPropertyChanged(nameof(EditorComPort));
+                if (value != null) LoadBoardSettings(value.ComPort);
+            }
         }
+
+        /// <summary>Raw COM port name derived from EditorComPortVm. Used throughout existing logic.</summary>
+        public string EditorComPort => _editorComPortVm?.ComPort ?? "";
 
         public int BoardBaudRate
         {
@@ -735,10 +777,10 @@ namespace BmsLightBridge.ViewModels
 
         private void SaveBoardSettings()
         {
-            if (string.IsNullOrEmpty(_editorComPort)) return;
+            if (string.IsNullOrEmpty(EditorComPort)) return;
 
-            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == _editorComPort)
-                      ?? new Models.ArduinoDevice { ComPort = _editorComPort };
+            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == EditorComPort)
+                      ?? new Models.ArduinoDevice { ComPort = EditorComPort };
 
             if (!_config.ArduinoDevices.Contains(dev))
                 _config.ArduinoDevices.Add(dev);
@@ -746,6 +788,16 @@ namespace BmsLightBridge.ViewModels
             dev.BaudRate     = _boardBaudRate;
             dev.ResetDelayMs = _boardResetDelayMs;
             dev.DtrEnable    = _boardDtrEnable;
+
+            // Always refresh USB identifiers when board settings are saved
+            var usbInfo = UsbSerialPortHelper.GetInfoForPort(EditorComPort);
+            if (usbInfo != null)
+            {
+                dev.UsbVid          = usbInfo.Vid;
+                dev.UsbPid          = usbInfo.Pid;
+                dev.UsbSerialNumber = usbInfo.SerialNumber;
+                dev.FriendlyName    = usbInfo.FriendlyName;
+            }
 
             SaveConfig();
         }
@@ -822,6 +874,10 @@ namespace BmsLightBridge.ViewModels
             _autoSync       = _config.AutoSync;
             _icpDedEnabled  = _config.IcpDisplay.IcpDedEnabled;
 
+            // Auto-recover COM ports before anything else — handles driver updates and
+            // USB re-enumeration that shift boards to different COM port numbers.
+            RecoverArduinoComPorts();
+
             _syncService = new SyncService();
             _axisToKeyService = new AxisToKeyService(_syncService.AxisBindings);
             _syncService.BmsConnectionChanged += OnBmsConnectionChanged;
@@ -861,6 +917,69 @@ namespace BmsLightBridge.ViewModels
                 StartSync();
         }
 
+        // ── USB / COM port auto-recovery ──────────────────────────────────
+
+        /// <summary>
+        /// On startup: ensures every COM port referenced by a mapping has an ArduinoDevice entry
+        /// with up-to-date USB hardware identifiers. Creates missing entries, updates existing ones,
+        /// and if a port has changed since the last run, updates all affected mappings silently.
+        /// </summary>
+        private void RecoverArduinoComPorts()
+        {
+            bool changed = false;
+
+            // Ensure every COM port referenced by a mapping has an ArduinoDevice entry
+            var usedPorts = _config.Mappings
+                .Where(m => m.TargetDevice == DeviceType.Arduino && !string.IsNullOrEmpty(m.ArduinoComPort))
+                .Select(m => m.ArduinoComPort)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var comPort in usedPorts)
+            {
+                if (!_config.ArduinoDevices.Any(d =>
+                        string.Equals(d.ComPort, comPort, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _config.ArduinoDevices.Add(new Models.ArduinoDevice { ComPort = comPort });
+                    changed = true;
+                }
+            }
+
+            // For every known device: attempt COM port recovery and refresh USB identifiers
+            foreach (var dev in _config.ArduinoDevices)
+            {
+                string oldPort = dev.ComPort;
+                string? recovered = ArduinoService.TryRecoverComPort(dev);
+
+                if (recovered != null && !string.Equals(recovered, oldPort, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Update all mappings that referenced the old COM port
+                    foreach (var m in _config.Mappings
+                        .Where(m => m.TargetDevice == DeviceType.Arduino &&
+                                    string.Equals(m.ArduinoComPort, oldPort, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        m.ArduinoComPort = recovered;
+                    }
+                    changed = true;
+                }
+
+                // Always refresh USB identifiers if the board is currently attached
+                var usbInfo = UsbSerialPortHelper.GetInfoForPort(dev.ComPort);
+                if (usbInfo != null)
+                {
+                    dev.UsbVid          = usbInfo.Vid;
+                    dev.UsbPid          = usbInfo.Pid;
+                    dev.UsbSerialNumber = usbInfo.SerialNumber;
+                    dev.FriendlyName    = usbInfo.FriendlyName;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                try { ConfigurationManager.Save(_config); } catch { }
+            }
+        }
+
         // ── Config import / export ────────────────────────────────────────
 
         /// <summary>
@@ -874,6 +993,7 @@ namespace BmsLightBridge.ViewModels
             if (imported == null) return false;
 
             _config = imported;
+            RecoverArduinoComPorts();
             ConfigurationManager.Save(_config);
 
             // Reset selection state before reinitialising — otherwise the ComboBox
@@ -925,7 +1045,7 @@ namespace BmsLightBridge.ViewModels
 
                 foreach (var mapping in mappings)
                 {
-                    // Herstel WinWingLightName voor configs opgeslagen zonder naam (backwards compat)
+                    // Backwards compat: restore WinWingLightName for configs saved without it
                     if (mapping.TargetDevice == DeviceType.WinWing
                         && string.IsNullOrEmpty(mapping.WinWingLightName)
                         && mapping.WinWingProductId != 0)
@@ -978,18 +1098,59 @@ namespace BmsLightBridge.ViewModels
 
         private void RefreshDevices()
         {
-            AvailableComPorts.Clear();
-            foreach (var port in ArduinoService.GetAvailableComPorts())
-                AvailableComPorts.Add(port);
+            // Enumerate joysticks first — needed for DirectInput name enrichment of COM ports
+            var joysticks = _syncService.AxisBindings.EnumerateJoysticks();
 
-            if (AvailableComPorts.Any() && string.IsNullOrEmpty(EditorComPort))
-                EditorComPort = AvailableComPorts.First();
+            // COM ports — enriched with DirectInput joystick names where VID/PID matches
+            var usbPorts = UsbSerialPortHelper.GetAllUsbSerialPorts();
+            if (_syncService.AxisBindings.DirectInputInstance != null)
+                UsbSerialPortHelper.EnrichWithDirectInputNames(usbPorts, _syncService.AxisBindings.DirectInputInstance);
+
+            AvailableComPorts.Clear();
+            foreach (var (comPort, displayName) in ArduinoService.GetAvailableComPortsWithNames(usbPorts))
+                AvailableComPorts.Add(new ComPortViewModel { ComPort = comPort, DisplayName = displayName });
+
+            // Restore selection or pick first available
+            if (_editorComPortVm == null || !AvailableComPorts.Any(p => p.ComPort == _editorComPortVm.ComPort))
+                EditorComPortVm = AvailableComPorts.FirstOrDefault();
+
+            // Update ArduinoDeviceName on all existing mappings using the freshly resolved names
+            bool mappingNamesUpdated = false;
+            foreach (var mapping in _config.Mappings.Where(m => m.TargetDevice == Models.DeviceType.Arduino))
+            {
+                var vm = AvailableComPorts.FirstOrDefault(p =>
+                    string.Equals(p.ComPort, mapping.ArduinoComPort, StringComparison.OrdinalIgnoreCase));
+                if (vm == null) continue;
+
+                string resolvedName = ExtractDeviceName(vm.DisplayName);
+                if (!string.Equals(mapping.ArduinoDeviceName, resolvedName, StringComparison.Ordinal))
+                {
+                    mapping.ArduinoDeviceName = resolvedName;
+                    mappingNamesUpdated = true;
+                }
+
+                // Also update FriendlyName in ArduinoDevices
+                var dev = _config.ArduinoDevices.FirstOrDefault(d =>
+                    string.Equals(d.ComPort, mapping.ArduinoComPort, StringComparison.OrdinalIgnoreCase));
+                if (dev != null && !string.Equals(dev.FriendlyName, resolvedName, StringComparison.Ordinal))
+                {
+                    dev.FriendlyName    = resolvedName;
+                    mappingNamesUpdated = true;
+                }
+            }
+
+            // Refresh MappingRow DeviceLabel in UI
+            foreach (var signal in _allSignals)
+                foreach (var row in signal.MappingRows.Where(r => r.Mapping.TargetDevice == Models.DeviceType.Arduino))
+                    row.OnPropertyChanged(nameof(MappingRowViewModel.DeviceLabel));
+
+            if (mappingNamesUpdated)
+                try { ConfigurationManager.Save(_config); } catch { }
 
             AvailableWinWingDevices.Clear();
             foreach (var device in WinWingService.EnumerateDevices())
                 AvailableWinWingDevices.Add(device);
 
-            var joysticks = _syncService.AxisBindings.EnumerateJoysticks();
             AvailableJoysticks.Clear();
             foreach (var js in joysticks)
                 AvailableJoysticks.Add(new JoystickDeviceViewModel { InstanceGuid = js.InstanceGuid, Name = js.Name });
@@ -1173,20 +1334,46 @@ namespace BmsLightBridge.ViewModels
 
                 if (result != MessageBoxResult.Yes) return;
 
-                // Verwijder de conflicterende mapping uit config én UI
+                // Remove conflicting mapping from config and UI
                 _config.Mappings.Remove(existingConflict);
                 var conflictSignal = _allSignals.FirstOrDefault(s => s.Light.Name == existingConflict.BmsSignalName);
                 var conflictRow    = conflictSignal?.MappingRows.FirstOrDefault(r => r.Mapping == existingConflict);
                 if (conflictRow != null) conflictSignal!.MappingRows.Remove(conflictRow);
             }
 
-            // ── Mapping aanmaken ──────────────────────────────────────────
+            // ── Create mapping ────────────────────────────────────────────
             var mapping = new SignalMapping { BmsSignalName = SelectedSignal.Light.Name, TargetDevice = EditorDeviceType };
 
             if (EditorDeviceType == DeviceType.Arduino)
             {
                 mapping.ArduinoComPort = EditorComPort;
                 mapping.ArduinoPin     = EditorPin;
+
+                // Store friendly device name for display in the mapping list.
+                // Use the display name already resolved by RefreshDevices (includes DirectInput name).
+                var comPortVm = AvailableComPorts.FirstOrDefault(p => 
+                    string.Equals(p.ComPort, EditorComPort, StringComparison.OrdinalIgnoreCase));
+                string resolvedName = comPortVm != null
+                    ? ExtractDeviceName(comPortVm.DisplayName)
+                    : UsbSerialPortHelper.GetInfoForPort(EditorComPort)?.FriendlyName ?? "";
+                mapping.ArduinoDeviceName = resolvedName;
+
+                // Ensure the ArduinoDevice entry has up-to-date USB identifiers
+                var usbInfo = UsbSerialPortHelper.GetInfoForPort(EditorComPort);
+                var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == EditorComPort)
+                          ?? new Models.ArduinoDevice { ComPort = EditorComPort };
+                if (!_config.ArduinoDevices.Contains(dev))
+                    _config.ArduinoDevices.Add(dev);
+                if (usbInfo != null)
+                {
+                    dev.UsbVid          = usbInfo.Vid;
+                    dev.UsbPid          = usbInfo.Pid;
+                    dev.UsbSerialNumber = usbInfo.SerialNumber;
+                    dev.FriendlyName    = resolvedName;
+                }
+                dev.BaudRate     = _boardBaudRate;
+                dev.ResetDelayMs = _boardResetDelayMs;
+                dev.DtrEnable    = _boardDtrEnable;
             }
             else
             {
@@ -1288,6 +1475,13 @@ namespace BmsLightBridge.ViewModels
                 MessageBox.Show($"Failed to save configuration:\n{ex.Message}",
                     "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        /// <summary>Extracts the device name from a display string like "COM3  —  Arduino Uno".</summary>
+        private static string ExtractDeviceName(string displayName)
+        {
+            int idx = displayName.IndexOf("  —  ", StringComparison.Ordinal);
+            return idx >= 0 ? displayName[(idx + 5)..].Trim() : "";
         }
 
         // ── Event handlers ────────────────────────────────────────────────
@@ -1433,8 +1627,14 @@ namespace BmsLightBridge.ViewModels
             System.Threading.Tasks.Task.Run(() =>
             {
                 System.Threading.Tasks.Parallel.ForEach(arduinoGroups, group =>
+                {
+                    // Connect handles already-open ports internally (no reset delay).
+                    // Only pass the full reset delay when the port needs a fresh open.
+                    int resetMs = _syncService.ArduinoOutput.IsPortConnected(group.ComPort)
+                                  ? 0 : group.ResetDelayMs;
                     _syncService.ArduinoOutput.Connect(
-                        group.ComPort, group.BaudRate, group.ResetDelayMs, group.DtrEnable, group.Mappings));
+                        group.ComPort, group.BaudRate, resetMs, group.DtrEnable, group.Mappings);
+                });
 
                 System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
@@ -1473,9 +1673,11 @@ namespace BmsLightBridge.ViewModels
                     {
                         foreach (var grp in arduinoMappings.GroupBy(m => m.ArduinoComPort))
                         {
-                            var dev = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == grp.Key);
+                            var dev     = _config.ArduinoDevices.FirstOrDefault(d => d.ComPort == grp.Key);
+                            int resetMs = _syncService.ArduinoOutput.IsPortConnected(grp.Key)
+                                          ? 0 : dev?.ResetDelayMs ?? 2000;
                             _syncService.ArduinoOutput.Connect(
-                                grp.Key, dev?.BaudRate ?? 115200, dev?.ResetDelayMs ?? 2000, dev?.DtrEnable ?? true, allMappings);
+                                grp.Key, dev?.BaudRate ?? 115200, resetMs, dev?.DtrEnable ?? true, allMappings);
                         }
                         System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
                             _syncService.FireTestOutput(cfgSnap, testStates));

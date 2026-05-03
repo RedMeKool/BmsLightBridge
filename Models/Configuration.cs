@@ -17,8 +17,10 @@ namespace BmsLightBridge.Models
         public DeviceType TargetDevice     { get; set; } = DeviceType.Arduino;
 
         // Arduino
-        public string ArduinoComPort { get; set; } = "";
-        public int    ArduinoPin     { get; set; } = 13;
+        public string ArduinoComPort    { get; set; } = "";
+        public int    ArduinoPin        { get; set; } = 13;
+        /// <summary>Human-readable device name shown in the mapping list, e.g. "Arduino Leonardo".</summary>
+        public string ArduinoDeviceName { get; set; } = "";
 
         // WinWing
         public string WinWingDeviceName { get; set; } = "";
@@ -41,6 +43,14 @@ namespace BmsLightBridge.Models
         public int    BaudRate     { get; set; } = 115200;
         public int    ResetDelayMs { get; set; } = 2000;
         public bool   DtrEnable    { get; set; } = true;
+
+        // USB hardware identifiers — used to recover the correct COM port after Windows
+        // re-enumerates USB devices (driver update, USB port change, etc.)
+        public string UsbVid          { get; set; } = "";
+        public string UsbPid          { get; set; } = "";
+        public string UsbSerialNumber { get; set; } = "";
+        /// <summary>Human-readable name read from Windows, e.g. "Arduino Leonardo".</summary>
+        public string FriendlyName    { get; set; } = "";
     }
 
     /// <summary>Configuration for one WinWing USB HID controller.</summary>

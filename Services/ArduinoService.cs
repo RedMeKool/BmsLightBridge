@@ -62,6 +62,50 @@ namespace BmsLightBridge.Services
         public static string[] GetAvailableComPorts()
             => SerialPort.GetPortNames().OrderBy(p => p).ToArray();
 
+        /// <summary>
+        /// Returns all available COM ports with a display name using a pre-fetched
+        /// (and optionally DirectInput-enriched) USB port info dictionary.
+        /// </summary>
+        public static List<(string ComPort, string DisplayName)> GetAvailableComPortsWithNames(
+            Dictionary<string, UsbSerialPortHelper.UsbSerialInfo> usbPorts)
+        {
+            return GetAvailableComPorts()
+                .Select(p =>
+                {
+                    string display = usbPorts.TryGetValue(p, out var info) && !string.IsNullOrEmpty(info.FriendlyName)
+                        ? $"{p}  —  {info.FriendlyName}"
+                        : p;
+                    return (p, display);
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Attempts to recover the actual COM port for an ArduinoDevice using its stored
+        /// USB hardware identifiers (VID, PID, SerialNumber).
+        ///
+        /// Strategy:
+        ///   1. Stored COM port still present → return it unchanged.
+        ///   2. Search all attached ports for one with matching VID/PID/SerialNumber.
+        ///   3. Found → update device.ComPort in-place, return new port.
+        ///   4. Not found → return null (board not connected).
+        /// </summary>
+        public static string? TryRecoverComPort(Models.ArduinoDevice device)
+        {
+            var available = GetAvailableComPorts();
+
+            if (available.Contains(device.ComPort, StringComparer.OrdinalIgnoreCase))
+                return device.ComPort;
+
+            string? recovered = UsbSerialPortHelper.FindComPortByIdentifier(
+                device.UsbVid, device.UsbPid, device.UsbSerialNumber);
+
+            if (recovered != null)
+                device.ComPort = recovered;
+
+            return recovered;
+        }
+
         /// <summary>True if at least one port is open.</summary>
         public bool IsConnected
         {
@@ -81,11 +125,18 @@ namespace BmsLightBridge.Services
         {
             lock (_lock)
             {
-                // Already open — just refresh the pin table.
+                // Already open — refresh the pin table and resend setup.
+                // Invalidate LastMode so ProcessMappings unconditionally sends a fresh
+                // mode frame on the next call, even if the new state equals the old one.
                 if (_ports.TryGetValue(comPort, out var existing) && existing.Port.IsOpen)
                 {
                     BuildPinTable(existing, mappings);
                     SendSetup(existing);
+                    // Fill LastMode with a sentinel value that can never equal a real bool,
+                    // achieved by allocating a fresh array — the next ProcessPort call will
+                    // always detect a difference and send the current state immediately.
+                    existing.LastMode = new bool[existing.Pins.Length];
+                    Array.Fill(existing.LastMode, true);
                     return true;
                 }
 
@@ -94,6 +145,11 @@ namespace BmsLightBridge.Services
 
                 try
                 {
+                    // When resetDelayMs is explicitly 0 for a board that normally resets on DTR,
+                    // open without DTR first, wait briefly, then enable DTR — this avoids the
+                    // reset that DTR triggers on Arduino Leonardo / similar boards.
+                    bool openWithDtr = dtrEnable && resetDelayMs > 0;
+
                     var serial = new SerialPort(comPort, baudRate)
                     {
                         DataBits     = 8,
@@ -101,18 +157,21 @@ namespace BmsLightBridge.Services
                         StopBits     = StopBits.One,
                         WriteTimeout = 2000,
                         Encoding     = Encoding.UTF8,
-                        DtrEnable    = dtrEnable,
+                        DtrEnable    = openWithDtr,
                         RtsEnable    = false
                     };
 
                     serial.Open();
 
-                    // Wait for the board to finish resetting/booting.
-                    // Leonardo: ~2000 ms (hard resets on DTR).
-                    // ESP32 with auto-reset circuit: ~500 ms.
-                    // ESP32 without reset circuit: 0 ms (firmware already running).
                     if (resetDelayMs > 0)
                         System.Threading.Thread.Sleep(resetDelayMs);
+                    else if (dtrEnable)
+                    {
+                        // Re-enable DTR after opening so the board sees a valid serial connection,
+                        // but skip the reset delay since the board is already running.
+                        System.Threading.Thread.Sleep(50);
+                        serial.DtrEnable = true;
+                    }
 
                     var state = new PortState(serial, comPort);
                     BuildPinTable(state, mappings);
@@ -220,6 +279,10 @@ namespace BmsLightBridge.Services
                 BuildPinTable(state, mappings);
                 SendSetup(state);
                 active = state.ActiveMappings;
+                // Force a mode send after every rebuild — LastMode is all-false after BuildPinTable,
+                // but the ESP still needs to receive the current state explicitly, even if all signals
+                // happen to be false (the ESP may have stale state from a previous session).
+                Array.Fill(state.LastMode, true);
             }
 
             // Fill the reusable scratch buffer — no heap allocation.
