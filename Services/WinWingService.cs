@@ -164,7 +164,7 @@ namespace BmsLightBridge.Services
             foreach (var m in mappings)
             {
                 if (!m.IsEnabled || m.TargetDevice != DeviceType.WinWing) continue;
-                bool on = lightStates.TryGetValue(m.BmsSignalName, out bool val) && val;
+                bool on = lightStates.TryGetValue(m.SignalName, out bool val) && val;
                 SetLight(m.WinWingProductId, m.WinWingLightIndex, on);
             }
         }

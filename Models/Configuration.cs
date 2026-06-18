@@ -9,12 +9,32 @@ namespace BmsLightBridge.Models
         WinWing
     }
 
+    /// <summary>Which simulator BmsLightBridge reads cockpit data from.</summary>
+    public enum SimulatorType
+    {
+        BMS,
+        DCS
+    }
+
+    /// <summary>Which aircraft module to use for DCS mappings. Only F-16C for now.</summary>
+    public enum DcsAircraft
+    {
+        F16C
+    }
+
     /// <summary>Mapping between one BMS light signal and one output on a physical device.</summary>
     public class SignalMapping
     {
         public Guid       Id               { get; set; } = Guid.NewGuid();
-        public string     BmsSignalName    { get; set; } = "";
+        public string     SignalName    { get; set; } = "";
         public DeviceType TargetDevice     { get; set; } = DeviceType.Arduino;
+
+        /// <summary>
+        /// Which simulator this mapping belongs to. Duplicate/conflict checks are
+        /// scoped to the active simulator, so the same physical output can be mapped
+        /// to different signals for BMS and DCS independently.
+        /// </summary>
+        public SimulatorType Simulator     { get; set; } = SimulatorType.BMS;
 
         // Arduino
         public string ArduinoComPort    { get; set; } = "";
@@ -166,8 +186,23 @@ namespace BmsLightBridge.Models
         /// <summary>Full path to Control Center.exe.</summary>
         public string ControlCenterPath   { get; set; } = string.Empty;
 
-        /// <summary>Full path to the .hpf profile file to load.</summary>
+        /// <summary>Full path to the .hpf profile to load when the active simulator is BMS.</summary>
+        public string ProfilePathBms      { get; set; } = string.Empty;
+
+        /// <summary>Full path to the .hpf profile to load when the active simulator is DCS.</summary>
+        public string ProfilePathDcs      { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Legacy single profile path, kept for backwards compatibility with configs saved
+        /// before per-simulator profiles existed. ConfigurationManager migrates this into
+        /// ProfilePathBms on load and no longer writes it.
+        /// </summary>
+        [Obsolete("Use ProfilePathBms / ProfilePathDcs instead. Retained for config migration only.")]
         public string ProfilePath         { get; set; } = string.Empty;
+
+        /// <summary>Returns the profile path for the given simulator.</summary>
+        public string GetProfilePath(SimulatorType simulator) =>
+            simulator == SimulatorType.DCS ? ProfilePathDcs : ProfilePathBms;
     }
 
     /// <summary>Root configuration — serialized to config.json in the application folder.</summary>
@@ -179,6 +214,12 @@ namespace BmsLightBridge.Models
         public bool   StartMinimized     { get; set; } = false;
         public bool   ShowOnlyMapped     { get; set; } = false;
         public bool   AutoSync           { get; set; } = false;
+
+        /// <summary>Which simulator to read cockpit data from. Determines which reader SyncService uses.</summary>
+        public SimulatorType Simulator   { get; set; } = SimulatorType.BMS;
+
+        /// <summary>Which DCS aircraft mapping table to use when Simulator == DCS.</summary>
+        public DcsAircraft DcsAircraft   { get; set; } = DcsAircraft.F16C;
 
         public List<ArduinoDevice>          ArduinoDevices     { get; set; } = new();
         public List<WinWingDevice>          WinWingDevices     { get; set; } = new();
@@ -215,13 +256,33 @@ namespace BmsLightBridge.Models
                 if (File.Exists(ConfigPath))
                 {
                     var config = JsonSerializer.Deserialize<AppConfiguration>(File.ReadAllText(ConfigPath), ReadOptions);
-                    return config ?? new AppConfiguration();
+                    if (config == null) return new AppConfiguration();
+
+                    MigrateLegacyHeliosProfile(config);
+                    return config;
                 }
             }
             catch { /* corrupt config — start fresh */ }
 
             return new AppConfiguration();
         }
+
+        /// <summary>
+        /// Configs saved before per-simulator Helios profiles existed have their path in the
+        /// legacy HeliosLaunch.ProfilePath field. Move it to ProfilePathBms (the only simulator
+        /// that existed at the time) so existing BMS setups keep working without reconfiguration.
+        /// </summary>
+#pragma warning disable CS0618 // ProfilePath is obsolete — this is the one place that's expected to read it.
+        private static void MigrateLegacyHeliosProfile(AppConfiguration config)
+        {
+            if (!string.IsNullOrWhiteSpace(config.HeliosLaunch.ProfilePath)
+                && string.IsNullOrWhiteSpace(config.HeliosLaunch.ProfilePathBms))
+            {
+                config.HeliosLaunch.ProfilePathBms = config.HeliosLaunch.ProfilePath;
+            }
+            config.HeliosLaunch.ProfilePath = string.Empty;
+        }
+#pragma warning restore CS0618
 
         public static void Save(AppConfiguration config)
         {

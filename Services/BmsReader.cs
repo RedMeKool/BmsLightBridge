@@ -7,21 +7,7 @@ using BmsLightBridge.Models;
 
 namespace BmsLightBridge.Services
 {
-    public class LightsChangedEventArgs : EventArgs
-    {
-        public uint   LightBits  { get; init; }
-        public uint   LightBits2 { get; init; }
-        public uint   LightBits3 { get; init; }
-        /// <summary>True when at least one LightBits value has changed since the previous tick.</summary>
-        public bool   HasLightBitsChanged { get; init; }
-        /// <summary>
-        /// Raw copy of the shared memory bytes needed for DED rendering (offsets 0–511).
-        /// Supplied so IcpService can share this read rather than opening a second MMF handle.
-        /// </summary>
-        public byte[] RawBuffer  { get; init; } = Array.Empty<byte>();
-    }
-
-    public class BmsSharedMemoryReader : IDisposable
+    public class BmsSharedMemoryReader : ISimulatorReader, IDisposable
     {
         // Byte offsets in FalconSharedMemoryArea — verified against FlightData.h
         // and confirmed via live memory dump (MasterCaution toggle at offset 108).
@@ -36,8 +22,8 @@ namespace BmsLightBridge.Services
         // which was the root cause of BMS crashing when BmsLightBridge was already running.
         private const int PROCESS_CHECK_INTERVAL_MS = 2000;
 
-        public event EventHandler<LightsChangedEventArgs>? LightsChanged;
-        public event EventHandler<bool>?                   ConnectionChanged;
+        public event EventHandler<CockpitStateChangedEventArgs>? StateChanged;
+        public event EventHandler<bool>?                          ConnectionChanged;
 
         public bool IsConnected { get; private set; }
         public bool IsRunning   { get; private set; }
@@ -48,6 +34,7 @@ namespace BmsLightBridge.Services
         private MemoryMappedViewAccessor?   _accessor;
         private readonly byte[]             _readBuffer = new byte[READ_SIZE];
         private uint     _lastBits1, _lastBits2, _lastBits3;
+        private Dictionary<string, bool> _lastLightStates = new();
         private DateTime _lastProcessCheck = DateTime.MinValue;
         private readonly object _lock = new();
 
@@ -86,19 +73,21 @@ namespace BmsLightBridge.Services
         }
 
         /// <summary>
-        /// Immediately fires LightsChanged with the last known values.
+        /// Immediately fires StateChanged with the last known values.
         /// Call this after starting sync to push current state to devices right away.
         /// </summary>
         public void ForceUpdate()
         {
             if (!IsConnected) return;
-            LightsChanged?.Invoke(this, new LightsChangedEventArgs
+
+            if (_lastLightStates.Count == 0)
+                _lastLightStates = BuildLightStates(_lastBits1, _lastBits2, _lastBits3);
+
+            StateChanged?.Invoke(this, new CockpitStateChangedEventArgs
             {
-                LightBits           = _lastBits1,
-                LightBits2          = _lastBits2,
-                LightBits3          = _lastBits3,
-                HasLightBitsChanged = true,
-                RawBuffer           = _readBuffer[.._readBuffer.Length],
+                LightStates = _lastLightStates,
+                HasChanged  = true,
+                RawBuffer   = _readBuffer[.._readBuffer.Length],
             });
         }
 
@@ -176,17 +165,16 @@ namespace BmsLightBridge.Services
                     _lastBits1 = lb1;
                     _lastBits2 = lb2;
                     _lastBits3 = lb3;
+                    _lastLightStates = BuildLightStates(lb1, lb2, lb3);
                 }
 
                 // Always fire so IcpService receives the raw buffer for DED rendering.
-                // HasLightBitsChanged lets SyncService skip ProcessMappings when only DED changed.
-                LightsChanged?.Invoke(this, new LightsChangedEventArgs
+                // HasChanged lets SyncService skip ProcessMappings when only DED changed.
+                StateChanged?.Invoke(this, new CockpitStateChangedEventArgs
                 {
-                    LightBits         = lb1,
-                    LightBits2        = lb2,
-                    LightBits3        = lb3,
-                    HasLightBitsChanged = bitsChanged,
-                    RawBuffer         = _readBuffer[..READ_SIZE],
+                    LightStates = _lastLightStates,
+                    HasChanged  = bitsChanged,
+                    RawBuffer   = _readBuffer[..READ_SIZE],
                 });
             }
             catch (FileNotFoundException)
@@ -204,6 +192,27 @@ namespace BmsLightBridge.Services
                 // Unexpected read failure (e.g. MMF closed by OS) — close and retry next tick.
                 CloseMmf();
             }
+        }
+
+        /// <summary>
+        /// Translates raw LightBits/2/3 into the generic named-state dictionary
+        /// used by the simulator-agnostic mapping pipeline (SignalMapping etc.).
+        /// </summary>
+        private static Dictionary<string, bool> BuildLightStates(uint lb1, uint lb2, uint lb3)
+        {
+            var states = new Dictionary<string, bool>(BmsLights.All.Count);
+            foreach (var light in BmsLights.All)
+            {
+                uint bits = light.BitField switch
+                {
+                    1 => lb1,
+                    2 => lb2,
+                    3 => lb3,
+                    _ => 0
+                };
+                states[light.Name] = (bits & light.BitMask) != 0;
+            }
+            return states;
         }
 
         private static bool IsBmsProcessRunning()

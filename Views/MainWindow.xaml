@@ -8,7 +8,7 @@
     xmlns:conv="clr-namespace:BmsLightBridge.Converters"
     xmlns:models="clr-namespace:BmsLightBridge.Models"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
-    Title="BMS Light Bridge v1.0.7"
+    Title="BMS Light Bridge v1.0.8"
     Height="780" Width="1280"
     MinHeight="600" MinWidth="900"
     Background="{StaticResource BackgroundBrush}"
@@ -82,18 +82,14 @@
                         <TextBlock Text="BMS Light Bridge"
                                    FontSize="18" FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock Text="Falcon BMS cockpit lighting synchronisation"
+                        <TextBlock Text="{Binding SimulatorSubtitle}"
                                    Style="{StaticResource LabelStyle}" FontSize="10"/>
                     </StackPanel>
                     <Grid Grid.Row="2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Height="36">
                     <Button Style="{StaticResource StartButton}"
                             Command="{Binding StartSyncCommand}"
-                            Margin="0,0,8,0" Width="110"
+                            Margin="0,0,6,0" Height="36"
                             ToolTip="Start synchronising cockpit lighting from Falcon BMS to connected hardware">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial Kind="Play" Width="14" Height="14"
@@ -103,7 +99,7 @@
                     </Button>
                     <Button Style="{StaticResource StopButton}"
                             Command="{Binding StopSyncCommand}"
-                            Width="110" Margin="0,0,8,0"
+                            Height="36" Margin="0,0,6,0"
                             ToolTip="Stop synchronising cockpit lighting">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial Kind="Stop" Width="14" Height="14"
@@ -112,7 +108,91 @@
                         </StackPanel>
                     </Button>
                     <Border Style="{StaticResource ToggleRowStyle}"
-                            Padding="10,6" Margin="0,0,12,0"
+                            Padding="8,6" Margin="0,0,8,0" Height="36"
+                            VerticalAlignment="Center"
+                            ToolTip="Switch between Falcon BMS (shared memory) and DCS World (DCS-BIOS, F-16C Viper)">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="BMS" FontSize="11" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,6,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsDcsSimulator}" Value="False">
+                                                <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <!-- Sliding toggle switch: pill-shaped track with a circular thumb -->
+                            <ToggleButton IsChecked="{Binding IsDcsSimulator, Mode=TwoWay}"
+                                          Width="40" Height="20"
+                                          VerticalAlignment="Center">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Track" CornerRadius="10"
+                                                Background="{StaticResource InputBrush}"
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1">
+                                            <Grid>
+                                                <Ellipse x:Name="Thumb"
+                                                         Width="14" Height="14"
+                                                         Fill="{StaticResource TextSecondaryBrush}"
+                                                         HorizontalAlignment="Left"
+                                                         VerticalAlignment="Center"
+                                                         Margin="2,0,0,0"/>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                                <Setter TargetName="Thumb" Property="Fill" Value="{StaticResource SurfaceBrush}"/>
+                                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+                                                <Setter TargetName="Thumb" Property="Margin" Value="0,0,2,0"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+
+                            <TextBlock Text="DCS" FontSize="11" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="6,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsDcsSimulator}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- DCS aircraft selector — only relevant/visible when DCS is active -->
+                    <ComboBox ItemsSource="{Binding DcsAircraftOptions}"
+                              SelectedItem="{Binding SelectedDcsAircraft, Mode=TwoWay}"
+                              Height="36" Width="110" Margin="0,0,8,0"
+                              VerticalAlignment="Center" VerticalContentAlignment="Center"
+                              FontSize="11"
+                              ToolTip="Select the DCS aircraft module to map">
+                        <ComboBox.Style>
+                            <Style TargetType="ComboBox" BasedOn="{StaticResource DarkComboBox}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDcsSimulator}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ComboBox.Style>
+                    </ComboBox>
+
+                    <Border Style="{StaticResource ToggleRowStyle}"
+                            Padding="8,6" Margin="0,0,8,0" Height="36"
                             VerticalAlignment="Center">
                         <CheckBox IsChecked="{Binding AutoSync, Mode=TwoWay}"
                                   VerticalAlignment="Center"
@@ -123,9 +203,9 @@
                                        VerticalAlignment="Center"/>
                         </CheckBox>
                     </Border>
-                    <Border Width="1" Background="{StaticResource BorderBrush}" Margin="0,0,12,0" VerticalAlignment="Stretch"/>
+                    <Border Width="1" Background="{StaticResource BorderBrush}" Margin="0,0,8,0" Height="36" VerticalAlignment="Center"/>
                     <Button Command="{Binding RemoveAllMappingsCommand}"
-                            Margin="0,0,8,0"
+                            Height="36" Margin="0,0,6,0"
                             ToolTip="Remove all mappings (confirmation required)">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
@@ -136,14 +216,13 @@
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial Kind="TrashCan" Width="14" Height="14"
                                                         VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Remove All Mappings" VerticalAlignment="Center"/>
+                            <TextBlock Text="Remove All" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
 
-
                     <!-- Test All Mappings knop -->
                     <Button Command="{Binding TestAllCommand}"
-                            Width="150"
+                            Height="36" Margin="0,0,8,0"
                             ToolTip="Turn all mapped lights ON at once. Press again to turn off.">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
@@ -183,109 +262,108 @@
                             <TextBlock Text="{Binding TestAllButtonLabel}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    </WrapPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                VerticalAlignment="Center" Margin="16,0,0,0">
-                        <Border Width="160" CornerRadius="6" Padding="10,6" Margin="0,0,6,0">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
-                                            <Setter Property="Background" Value="{StaticResource BannerGreenBrush}"/>
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
-                                            <Setter Property="Background" Value="{StaticResource BannerRedBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Style>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
-                                    <Ellipse.Style>
-                                        <Style TargetType="Ellipse">
+
+                    <!-- Status indicators -->
+                    <Border Width="122" CornerRadius="6" Padding="8,4" Height="36" Margin="0,0,4,0" VerticalAlignment="Center">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource BannerGreenBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
+                                        <Setter Property="Background" Value="{StaticResource BannerRedBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
+                                                <Setter Property="Fill" Value="{StaticResource AccentGreenBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
+                                                <Setter Property="Fill" Value="{StaticResource AccentRedBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding SimulatorLabel}" FontSize="9" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock FontSize="11" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
-                                                    <Setter Property="Fill" Value="{StaticResource AccentGreenBrush}"/>
+                                                    <Setter Property="Text" Value="Connected"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
-                                                    <Setter Property="Fill" Value="{StaticResource AccentRedBrush}"/>
+                                                    <Setter Property="Text" Value="Not connected"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentRedBrush}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </Ellipse.Style>
-                                </Ellipse>
-                                <StackPanel>
-                                    <TextBlock Text="FALCON BMS" FontSize="9" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                                    <TextBlock FontSize="11" FontWeight="SemiBold">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsBmsConnected}" Value="True">
-                                                        <Setter Property="Text" Value="Connected"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding IsBmsConnected}" Value="False">
-                                                        <Setter Property="Text" Value="Not connected"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource AccentRedBrush}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </StackPanel>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
-                        </Border>
-                        <Border Width="160" CornerRadius="6" Padding="10,6">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsSyncing}" Value="True">
-                                            <Setter Property="Background" Value="#1A5A8FAD"/>
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding IsSyncing}" Value="False">
-                                            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Style>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
-                                    <Ellipse.Style>
-                                        <Style TargetType="Ellipse">
+                        </StackPanel>
+                    </Border>
+                    <Border Width="100" CornerRadius="6" Padding="8,4" Height="36" VerticalAlignment="Center">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSyncing}" Value="True">
+                                        <Setter Property="Background" Value="#1A5A8FAD"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsSyncing}" Value="False">
+                                        <Setter Property="Background" Value="{StaticResource InputBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSyncing}" Value="True">
+                                                <Setter Property="Fill" Value="#6B8A9A"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsSyncing}" Value="False">
+                                                <Setter Property="Fill" Value="#4A606E"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="SYNC" FontSize="9" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock FontSize="11" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsSyncing}" Value="True">
-                                                    <Setter Property="Fill" Value="#6B8A9A"/>
+                                                    <Setter Property="Text" Value="Active"/>
+                                                    <Setter Property="Foreground" Value="#6B8A9A"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsSyncing}" Value="False">
-                                                    <Setter Property="Fill" Value="#4A606E"/>
+                                                    <Setter Property="Text" Value="Inactive"/>
+                                                    <Setter Property="Foreground" Value="#4A606E"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </Ellipse.Style>
-                                </Ellipse>
-                                <StackPanel>
-                                    <TextBlock Text="SYNC" FontSize="9" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                                    <TextBlock FontSize="11" FontWeight="SemiBold">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsSyncing}" Value="True">
-                                                        <Setter Property="Text" Value="Active"/>
-                                                        <Setter Property="Foreground" Value="#6B8A9A"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding IsSyncing}" Value="False">
-                                                        <Setter Property="Text" Value="Inactive"/>
-                                                        <Setter Property="Foreground" Value="#4A606E"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </StackPanel>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
-                        </Border>
+                        </StackPanel>
+                    </Border>
                     </StackPanel>
                     </Grid> <!-- toolbar Grid -->
                 </Grid> <!-- rechter kolom Grid -->
@@ -1842,8 +1920,37 @@
                                             </Button>
                                         </Grid>
 
-                                        <!-- .hpf profile path -->
-                                        <TextBlock Text="Helios Profile (.hpf)" FontSize="11" FontWeight="SemiBold"
+                                        <!-- .hpf profile path — BMS -->
+                                        <TextBlock Text="Helios Profile — Falcon BMS (.hpf)" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Grid.Column="0"
+                                                     Style="{StaticResource DarkTextBox}"
+                                                     Text="{Binding HeliosProfilePathBms, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                     ToolTip="Full path to your .hpf Helios profile for Falcon BMS"
+                                                     Margin="0,0,6,0" FontSize="11" IsReadOnly="True"/>
+                                            <Button Grid.Column="1"
+                                                    Command="{Binding BrowseHeliosProfileCommand}"
+                                                    CommandParameter="BMS"
+                                                    Style="{StaticResource SecondaryButton}"
+                                                    ToolTip="Browse for Helios profile (.hpf) for Falcon BMS"
+                                                    Padding="10,6">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="FolderOpen"
+                                                                                Width="13" Height="13"
+                                                                                VerticalAlignment="Center"
+                                                                                Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Browse" FontSize="11" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+
+                                        <!-- .hpf profile path — DCS -->
+                                        <TextBlock Text="Helios Profile — DCS World (.hpf)" FontSize="11" FontWeight="SemiBold"
                                                    Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -1852,13 +1959,14 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBox Grid.Column="0"
                                                      Style="{StaticResource DarkTextBox}"
-                                                     Text="{Binding HeliosProfilePath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                                     ToolTip="Full path to your .hpf Helios profile"
+                                                     Text="{Binding HeliosProfilePathDcs, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                     ToolTip="Full path to your .hpf Helios profile for DCS World"
                                                      Margin="0,0,6,0" FontSize="11" IsReadOnly="True"/>
                                             <Button Grid.Column="1"
                                                     Command="{Binding BrowseHeliosProfileCommand}"
+                                                    CommandParameter="DCS"
                                                     Style="{StaticResource SecondaryButton}"
-                                                    ToolTip="Browse for Helios profile (.hpf)"
+                                                    ToolTip="Browse for Helios profile (.hpf) for DCS World"
                                                     Padding="10,6">
                                                 <StackPanel Orientation="Horizontal">
                                                     <iconPacks:PackIconMaterial Kind="FolderOpen"

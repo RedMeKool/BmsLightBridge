@@ -506,6 +506,10 @@ namespace BmsLightBridge.ViewModels
         private string _searchText       = "";
         private string _selectedCategory = "All";
 
+        /// <summary>
+        /// True when the active simulator (BMS or DCS) is detected as running.
+        /// Named IsBmsConnected for XAML-binding compatibility; covers both simulators.
+        /// </summary>
         public bool IsBmsConnected
         {
             get => _isBmsConnected;
@@ -517,7 +521,57 @@ namespace BmsLightBridge.ViewModels
         }
 
         /// <summary>Computed from IsBmsConnected — no separate backing field needed.</summary>
-        public string BmsStatusText => IsBmsConnected ? "Connected to BMS" : "BMS not detected";
+        public string BmsStatusText => IsBmsConnected
+            ? $"Connected to {SimulatorName}"
+            : $"{SimulatorName} not detected";
+
+        /// <summary>Label shown above the connection indicator, e.g. "FALCON BMS" or "DCS WORLD".</summary>
+        public string SimulatorLabel => _config.Simulator == SimulatorType.DCS ? "DCS WORLD" : "FALCON BMS";
+
+        /// <summary>Subtitle shown under the application title, describing the active simulator.</summary>
+        public string SimulatorSubtitle => _config.Simulator == SimulatorType.DCS
+            ? "DCS World (F-16C Viper) cockpit lighting synchronisation"
+            : "Falcon BMS cockpit lighting synchronisation";
+
+        // ── DCS aircraft selection ───────────────────────────────────────────
+
+        /// <summary>
+        /// Display names for the available DCS aircraft mapping tables.
+        /// Only the F-16C Viper is implemented today; additional entries can be
+        /// added here as their DcsXxxLights tables are built.
+        /// </summary>
+        public List<string> DcsAircraftOptions { get; } = new() { "F-16C Viper" };
+
+        /// <summary>
+        /// Selected DCS aircraft (display name). Setting this updates config.DcsAircraft
+        /// and, if DCS is the active simulator, rebuilds the signal list for the new aircraft.
+        /// </summary>
+        public string SelectedDcsAircraft
+        {
+            get => _config.DcsAircraft switch
+            {
+                DcsAircraft.F16C => "F-16C Viper",
+                _                => "F-16C Viper",
+            };
+            set
+            {
+                var newAircraft = value switch
+                {
+                    "F-16C Viper" => DcsAircraft.F16C,
+                    _             => DcsAircraft.F16C,
+                };
+                if (_config.DcsAircraft == newAircraft) return;
+
+                _config.DcsAircraft = newAircraft;
+                OnPropertyChanged();
+
+                if (_config.Simulator == SimulatorType.DCS)
+                    InitializeSignals();
+
+                SaveConfig();
+            }
+        }
+
 
         public bool IsSyncing
         {
@@ -615,6 +669,39 @@ namespace BmsLightBridge.ViewModels
             set { _config.PollingIntervalMs = Math.Clamp(value, 10, 1000); OnPropertyChanged(); SaveConfig(); }
         }
 
+        // ── Simulator selection ──────────────────────────────────────────────
+
+        /// <summary>
+        /// True when the active simulator is DCS (DCS-BIOS), false for BMS.
+        /// Changing this rebuilds the signal list for the matching aircraft mapping
+        /// table and swaps the active cockpit-data reader in SyncService.
+        /// </summary>
+        public bool IsDcsSimulator
+        {
+            get => _config.Simulator == SimulatorType.DCS;
+            set
+            {
+                var newSim = value ? SimulatorType.DCS : SimulatorType.BMS;
+                if (_config.Simulator == newSim) return;
+
+                _config.Simulator = newSim;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SimulatorName));
+                OnPropertyChanged(nameof(SimulatorLabel));
+                OnPropertyChanged(nameof(SimulatorSubtitle));
+                OnPropertyChanged(nameof(BmsStatusText));
+
+                _syncService.SetSimulator(newSim);
+                InitializeSignals();
+                OnPropertyChanged(nameof(TotalMappings));
+
+                SaveConfig();
+            }
+        }
+
+        /// <summary>Display name for the active simulator, e.g. for a status label.</summary>
+        public string SimulatorName => _config.Simulator == SimulatorType.DCS ? "DCS" : "BMS";
+
         // ── Helios launch ─────────────────────────────────────────────────
 
         public bool HeliosLaunchEnabled
@@ -635,14 +722,20 @@ namespace BmsLightBridge.ViewModels
             set { _config.HeliosLaunch.ControlCenterPath = value; OnPropertyChanged(); SaveConfig(); }
         }
 
-        public string HeliosProfilePath
+        public string HeliosProfilePathBms
         {
-            get => _config.HeliosLaunch.ProfilePath;
-            set { _config.HeliosLaunch.ProfilePath = value; OnPropertyChanged(); SaveConfig(); }
+            get => _config.HeliosLaunch.ProfilePathBms;
+            set { _config.HeliosLaunch.ProfilePathBms = value; OnPropertyChanged(); SaveConfig(); }
+        }
+
+        public string HeliosProfilePathDcs
+        {
+            get => _config.HeliosLaunch.ProfilePathDcs;
+            set { _config.HeliosLaunch.ProfilePathDcs = value; OnPropertyChanged(); SaveConfig(); }
         }
 
         public RelayCommand BrowseHeliosExeCommand     { get; }
-        public RelayCommand BrowseHeliosProfileCommand { get; }
+        public RelayCommand<string> BrowseHeliosProfileCommand { get; }
 
         public string SearchText
         {
@@ -833,7 +926,7 @@ namespace BmsLightBridge.ViewModels
         }
 
         // ── Statistics ────────────────────────────────────────────────────
-        public int TotalMappings => _config.Mappings.Count;
+        public int TotalMappings => _config.Mappings.Count(m => m.Simulator == _config.Simulator);
         public int ActiveSignals => _allSignals.Count(s => s.IsOn);
         public int MappedSignals => _allSignals.Count(s => s.IsMapped);
 
@@ -879,8 +972,9 @@ namespace BmsLightBridge.ViewModels
             RecoverArduinoComPorts();
 
             _syncService = new SyncService();
+            _syncService.SetSimulator(_config.Simulator);
             _axisToKeyService = new AxisToKeyService(_syncService.AxisBindings);
-            _syncService.BmsConnectionChanged += OnBmsConnectionChanged;
+            _syncService.SimulatorConnectionChanged += OnSimulatorConnectionChanged;
             _syncService.SyncStateChanged     += OnSyncStateChanged;
             _syncService.LightStatesUpdated   += OnLightStatesUpdated;
             _syncService.IcpConnectionChanged += (_, _) => OnPropertyChanged(nameof(IcpIsConnected));
@@ -890,16 +984,16 @@ namespace BmsLightBridge.ViewModels
             StopSyncCommand          = new RelayCommand(StopSync,          () => CanStop);
             AddMappingCommand        = new RelayCommand(AddMapping,        () => HasSelectedSignal);
             DeleteMappingCommand     = new RelayCommand(DeleteAllMappings, () => SelectedSignal?.IsMapped == true);
-            RemoveAllMappingsCommand = new RelayCommand(RemoveAllMappings, () => _config.Mappings.Any());
+            RemoveAllMappingsCommand = new RelayCommand(RemoveAllMappings, () => _config.Mappings.Any(m => m.Simulator == _config.Simulator));
             RefreshDevicesCommand    = new RelayCommand(RefreshDevices);
             SaveBrightnessCommand    = new RelayCommand(SaveBrightness,    () => SelectedBrightnessDevice != null);
             ResetBrightnessCommand   = new RelayCommand(ResetBrightness,   () => SelectedBrightnessDevice != null);
             TestSignalCommand        = new RelayCommand(ToggleTestSignal,  () => SelectedSignal?.IsMapped == true);
             DiagnosticCommand        = new RelayCommand(RunDiagnostic,     () => SelectedSignal?.IsMapped == true && IsArduinoSelected);
-            TestAllCommand           = new RelayCommand(TestAllMappings,   () => _config.Mappings.Any(m => m.IsEnabled));
+            TestAllCommand           = new RelayCommand(TestAllMappings,   () => _config.Mappings.Any(m => m.IsEnabled && m.Simulator == _config.Simulator));
 
             BrowseHeliosExeCommand     = new RelayCommand(BrowseHeliosExe);
-            BrowseHeliosProfileCommand = new RelayCommand(BrowseHeliosProfile);
+            BrowseHeliosProfileCommand = new RelayCommand<string>(BrowseHeliosProfile);
             SelectSignalCommand        = new RelayCommand<SignalViewModel>(s => SelectedSignal = s);
             ToggleCategoryCommand      = new RelayCommand<CategoryGroup>(g => { if (g != null) g.IsExpanded = !g.IsExpanded; });
             ExpandAllCommand           = new RelayCommand(() => { foreach (var g in CategoryGroups) g.IsExpanded = true; });
@@ -1023,8 +1117,15 @@ namespace BmsLightBridge.ViewModels
             OnPropertyChanged(nameof(HeliosLaunchEnabled));
             OnPropertyChanged(nameof(HeliosShutdownEnabled));
             OnPropertyChanged(nameof(HeliosControlCenterPath));
-            OnPropertyChanged(nameof(HeliosProfilePath));
+            OnPropertyChanged(nameof(HeliosProfilePathBms));
+            OnPropertyChanged(nameof(HeliosProfilePathDcs));
             OnPropertyChanged(nameof(PollingIntervalMs));
+            OnPropertyChanged(nameof(IsDcsSimulator));
+            OnPropertyChanged(nameof(SimulatorName));
+            OnPropertyChanged(nameof(SimulatorLabel));
+            OnPropertyChanged(nameof(SimulatorSubtitle));
+            OnPropertyChanged(nameof(BmsStatusText));
+            OnPropertyChanged(nameof(SelectedDcsAircraft));
 
             InitializeSignals();
             RefreshDevices();
@@ -1041,13 +1142,33 @@ namespace BmsLightBridge.ViewModels
             Categories.Clear();
             Categories.Add("All");
 
-            foreach (var category in BmsLights.Categories)
+            // Pick the signal table for the active simulator. DCS lights are adapted
+            // to CockpitLight for display; matching at runtime happens by Name via the
+            // generic LightStates dictionary (see ISimulatorReader), so BitField/BitMask
+            // on the DCS-derived CockpitLight are unused placeholders.
+            IReadOnlyList<string>       categories;
+            IEnumerable<CockpitLight>   lights;
+
+            if (_config.Simulator == SimulatorType.DCS)
+            {
+                categories = DcsF16Lights.Categories;
+                lights     = DcsF16Lights.All.Select(l => l.ToCockpitLight());
+            }
+            else
+            {
+                categories = BmsLights.Categories;
+                lights     = BmsLights.All;
+            }
+
+            foreach (var category in categories)
                 Categories.Add(category);
 
-            foreach (var light in BmsLights.All)
+            foreach (var light in lights)
             {
                 var vm       = new SignalViewModel(light);
-                var mappings = _config.Mappings.Where(m => m.BmsSignalName == light.Name).ToList();
+                var mappings = _config.Mappings
+                    .Where(m => m.SignalName == light.Name && m.Simulator == _config.Simulator)
+                    .ToList();
 
                 foreach (var mapping in mappings)
                 {
@@ -1282,7 +1403,7 @@ namespace BmsLightBridge.ViewModels
 
         private void StopSync()
         {
-            _syncService.Stop(_config);
+            _syncService.Stop();
             StatusMessage = "Synchronisation stopped. All lights have been turned off.";
             OnPropertyChanged(nameof(IcpIsConnected));
         }
@@ -1306,6 +1427,7 @@ namespace BmsLightBridge.ViewModels
             if (EditorDeviceType == DeviceType.WinWing && EditorWinWingDevice != null)
             {
                 existingConflict = _config.Mappings.FirstOrDefault(m =>
+                    m.Simulator         == _config.Simulator &&
                     m.TargetDevice      == DeviceType.WinWing &&
                     m.WinWingProductId  == EditorWinWingDevice.ProductId &&
                     m.WinWingLightIndex == EditorLightIndex);
@@ -1313,6 +1435,7 @@ namespace BmsLightBridge.ViewModels
             else if (EditorDeviceType == DeviceType.Arduino && !string.IsNullOrEmpty(EditorComPort))
             {
                 existingConflict = _config.Mappings.FirstOrDefault(m =>
+                    m.Simulator      == _config.Simulator &&
                     m.TargetDevice   == DeviceType.Arduino &&
                     m.ArduinoComPort == EditorComPort &&
                     m.ArduinoPin     == EditorPin);
@@ -1322,7 +1445,7 @@ namespace BmsLightBridge.ViewModels
             {
                 string outputDesc = EditorOutputDescription();
 
-                if (existingConflict.BmsSignalName == SelectedSignal.Light.Name)
+                if (existingConflict.SignalName == SelectedSignal.Light.Name)
                 {
                     MessageBox.Show(
                         $"This output is already mapped to this signal:\n\n  {outputDesc}",
@@ -1332,7 +1455,7 @@ namespace BmsLightBridge.ViewModels
 
                 var result = MessageBox.Show(
                     $"This output is already mapped to:\n\n" +
-                    $"  Signal:  {existingConflict.BmsSignalName}\n" +
+                    $"  Signal:  {existingConflict.SignalName}\n" +
                     $"  Output:  {outputDesc}\n\n" +
                     $"Do you want to move this output to '{SelectedSignal.Light.Name}'?\n" +
                     $"The existing mapping will be removed.",
@@ -1342,13 +1465,18 @@ namespace BmsLightBridge.ViewModels
 
                 // Remove conflicting mapping from config and UI
                 _config.Mappings.Remove(existingConflict);
-                var conflictSignal = _allSignals.FirstOrDefault(s => s.Light.Name == existingConflict.BmsSignalName);
+                var conflictSignal = _allSignals.FirstOrDefault(s => s.Light.Name == existingConflict.SignalName);
                 var conflictRow    = conflictSignal?.MappingRows.FirstOrDefault(r => r.Mapping == existingConflict);
                 if (conflictRow != null) conflictSignal!.MappingRows.Remove(conflictRow);
             }
 
             // ── Create mapping ────────────────────────────────────────────
-            var mapping = new SignalMapping { BmsSignalName = SelectedSignal.Light.Name, TargetDevice = EditorDeviceType };
+            var mapping = new SignalMapping
+            {
+                SignalName = SelectedSignal.Light.Name,
+                TargetDevice  = EditorDeviceType,
+                Simulator     = _config.Simulator,
+            };
 
             if (EditorDeviceType == DeviceType.Arduino)
             {
@@ -1429,13 +1557,16 @@ namespace BmsLightBridge.ViewModels
 
         private void RemoveAllMappings()
         {
-            int count = _config.Mappings.Count;
+            int count = _config.Mappings.Count(m => m.Simulator == _config.Simulator);
+            string simName = _config.Simulator == SimulatorType.DCS ? "DCS" : "BMS";
             if (MessageBox.Show(
-                    $"Are you sure you want to remove all {count} mapping(s)?\nThis cannot be undone.",
+                    $"Are you sure you want to remove all {count} {simName} mapping(s)?\nThis cannot be undone.",
                     "Remove All Mappings", MessageBoxButton.YesNo, MessageBoxImage.Warning)
                 != MessageBoxResult.Yes) return;
 
-            _config.Mappings.Clear();
+            foreach (var m in _config.Mappings.Where(m => m.Simulator == _config.Simulator).ToList())
+                _config.Mappings.Remove(m);
+
             foreach (var signal in _allSignals) signal.MappingRows.Clear();
 
             SaveConfig();
@@ -1459,18 +1590,24 @@ namespace BmsLightBridge.ViewModels
             if (dlg.ShowDialog() == true) HeliosControlCenterPath = dlg.FileName;
         }
 
-        private void BrowseHeliosProfile()
+        /// <param name="simulator">"BMS" or "DCS" — determines which profile path is set.</param>
+        private void BrowseHeliosProfile(string? simulator)
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title           = "Select Helios Profile",
+                Title           = $"Select Helios Profile ({simulator})",
                 Filter          = "Helios Profile (*.hpf)|*.hpf",
                 CheckFileExists = true
             };
             string defaultDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Helios", "Profiles");
             if (Directory.Exists(defaultDir)) dlg.InitialDirectory = defaultDir;
-            if (dlg.ShowDialog() == true) HeliosProfilePath = dlg.FileName;
+            if (dlg.ShowDialog() != true) return;
+
+            if (string.Equals(simulator, "DCS", StringComparison.OrdinalIgnoreCase))
+                HeliosProfilePathDcs = dlg.FileName;
+            else
+                HeliosProfilePathBms = dlg.FileName;
         }
 
         private void SaveConfig()
@@ -1501,7 +1638,7 @@ namespace BmsLightBridge.ViewModels
             });
         }
 
-        private void OnBmsConnectionChanged(object? sender, bool connected)
+        private void OnSimulatorConnectionChanged(object? sender, bool connected)
         {
             IsBmsConnected = connected;
             OnPropertyChanged(nameof(IcpIsConnected));
@@ -1515,7 +1652,7 @@ namespace BmsLightBridge.ViewModels
                 }
                 else if (!connected && IsSyncing)
                 {
-                    _syncService.Stop(_config);
+                    _syncService.Stop();
                     StatusMessage = "BMS connection lost — sync stopped automatically.";
                 }
             }
@@ -1558,7 +1695,7 @@ namespace BmsLightBridge.ViewModels
                     dev?.BaudRate     ?? 115200,
                     dev?.ResetDelayMs ?? 2000,
                     dev?.DtrEnable    ?? true,
-                    mapping.BmsSignalName,
+                    mapping.SignalName,
                     mapping.ArduinoPin,
                     _config.Mappings);
 
@@ -1584,13 +1721,22 @@ namespace BmsLightBridge.ViewModels
         private bool _arduinoTestReady;
         public bool CanStopAllTests => IsTestingAll && _arduinoTestReady;
 
-        /// <summary>Returns the set of enabled signal names as an on/off state dictionary.</summary>
-        private Dictionary<string, bool> BuildTestStates(bool on) =>
-            _config.Mappings
-                .Where(m => m.IsEnabled)
-                .Select(m => m.BmsSignalName)
+        /// <summary>
+        /// Returns the set of enabled, mapped signal names for the active simulator
+        /// as an on/off state dictionary. Mappings for signals that don't exist in the
+        /// active simulator's light table (e.g. a BMS-only "Chaff Lo" mapping while DCS
+        /// is active) are excluded, so Test All only touches outputs that are actually
+        /// driven by the current simulator.
+        /// </summary>
+        private Dictionary<string, bool> BuildTestStates(bool on)
+        {
+            var activeNames = new HashSet<string>(_allSignals.Select(s => s.Light.Name));
+            return _config.Mappings
+                .Where(m => m.IsEnabled && activeNames.Contains(m.SignalName))
+                .Select(m => m.SignalName)
                 .Distinct()
                 .ToDictionary(name => name, _ => on);
+        }
 
         private void TestAllMappings()
         {

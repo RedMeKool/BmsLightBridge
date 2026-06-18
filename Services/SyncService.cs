@@ -5,22 +5,23 @@ namespace BmsLightBridge.Services
 {
     public class SyncService : IDisposable
     {
-        private readonly BmsSharedMemoryReader _bmsReader;
+        private ISimulatorReader        _activeReader;
         private readonly ArduinoService        _arduinoOutput;
         private readonly WinWingService        _winWingService;
         private readonly IcpService            _icpService;
         private readonly AxisBindingService    _axisBindings;
 
+        private SimulatorType _activeSimulator = SimulatorType.BMS;
+
         public ArduinoService     ArduinoOutput => _arduinoOutput;
         public AxisBindingService AxisBindings  => _axisBindings;
         public IcpService         IcpOutput     => _icpService;
 
-        public event EventHandler<bool>?                     BmsConnectionChanged;
+        public event EventHandler<bool>?                     SimulatorConnectionChanged;
         public event EventHandler<bool>?                     SyncStateChanged;
         public event EventHandler<Dictionary<string, bool>>? LightStatesUpdated;
         public event EventHandler<bool>?                     IcpConnectionChanged;
 
-        private bool _isBmsConnected;
         public bool IsSyncing { get; private set; }
 
         private readonly Dictionary<string, bool> _currentLightStates = new();
@@ -29,21 +30,67 @@ namespace BmsLightBridge.Services
 
         public SyncService()
         {
-            _bmsReader      = new BmsSharedMemoryReader();
             _arduinoOutput  = new ArduinoService();
             _winWingService = new WinWingService();
             _icpService     = new IcpService();
             _axisBindings   = new AxisBindingService();
 
             _icpService.ConnectionChanged += OnIcpConnectionChanged;
-            _bmsReader.ConnectionChanged  += OnBmsConnectionChanged;
-            _bmsReader.LightsChanged      += OnLightsChanged;
 
             _axisBindings.BrightnessChanged += (pid, lightIndex, brightness) =>
                 _winWingService.SetBrightness(pid, lightIndex, brightness);
 
             _axisBindings.Start();
-            _bmsReader.Start(500);
+
+            // Default to BMS on startup; SetSimulator(config.Simulator) is called once
+            // the configuration has been loaded, and will swap readers if needed.
+            _activeReader = CreateReader(SimulatorType.BMS);
+            AttachReader(_activeReader);
+            _activeReader.Start(500);
+        }
+
+        /// <summary>
+        /// Switches the active cockpit-data reader (BMS shared memory or DCS-BIOS).
+        /// Safe to call at any time, including while sync is running — the previous
+        /// reader is stopped/disposed and the new one started in its place.
+        /// If the simulator is unchanged, this is a no-op.
+        /// </summary>
+        public void SetSimulator(SimulatorType simulator)
+        {
+            if (simulator == _activeSimulator) return;
+
+            int interval = IsSyncing ? (_activeConfig?.PollingIntervalMs ?? 500) : 500;
+
+            DetachReader(_activeReader);
+            _activeReader.Dispose();
+
+            _activeSimulator = simulator;
+            _activeReader    = CreateReader(simulator);
+            AttachReader(_activeReader);
+            _activeReader.Start(interval);
+
+            // Reset cached state — the new reader starts disconnected.
+            _currentLightStates.Clear();
+            System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+                SimulatorConnectionChanged?.Invoke(this, false));
+        }
+
+        private static ISimulatorReader CreateReader(SimulatorType simulator) => simulator switch
+        {
+            SimulatorType.DCS => new DcsBiosReader(),
+            _                  => new BmsSharedMemoryReader(),
+        };
+
+        private void AttachReader(ISimulatorReader reader)
+        {
+            reader.ConnectionChanged += OnSimulatorConnectionChanged;
+            reader.StateChanged      += OnStateChanged;
+        }
+
+        private void DetachReader(ISimulatorReader reader)
+        {
+            reader.ConnectionChanged -= OnSimulatorConnectionChanged;
+            reader.StateChanged      -= OnStateChanged;
         }
 
         // ── Start / Stop ──────────────────────────────────────────────────
@@ -52,9 +99,12 @@ namespace BmsLightBridge.Services
         {
             if (IsSyncing) return;
 
+            // Make sure the reader matches the configured simulator before we start syncing.
+            SetSimulator(config.Simulator);
+
             // WinWing: fast USB open, no blocking wait.
             var winWingPids = config.Mappings
-                .Where(m => m.IsEnabled && m.TargetDevice == DeviceType.WinWing)
+                .Where(m => m.IsEnabled && m.TargetDevice == DeviceType.WinWing && m.Simulator == config.Simulator)
                 .Select(m => m.WinWingProductId)
                 .Distinct();
 
@@ -68,14 +118,14 @@ namespace BmsLightBridge.Services
             _activeConfig = config;
             IsSyncing     = true;
 
-            _bmsReader.ChangeInterval(config.PollingIntervalMs);
+            _activeReader.ChangeInterval(config.PollingIntervalMs);
             SyncStateChanged?.Invoke(this, true);
 
             _winWingService.ProcessBrightnessChannels(config.BrightnessChannels);
-            _bmsReader.ForceUpdate();
+            _activeReader.ForceUpdate();
 
             // Launch Helios Control Center if configured and not already running.
-            TryLaunchHelios(config.HeliosLaunch);
+            TryLaunchHelios(config.HeliosLaunch, config.HeliosLaunch.GetProfilePath(config.Simulator));
 
             // Arduino: connect each board in parallel (Leonardo needs ~2000 ms DTR reset).
             var arduinoGroups = BuildArduinoGroups(config);
@@ -94,7 +144,7 @@ namespace BmsLightBridge.Services
         public static List<(string ComPort, int BaudRate, int ResetDelayMs, bool DtrEnable, IEnumerable<SignalMapping> Mappings)>
             BuildArduinoGroups(AppConfiguration config)
             => config.Mappings
-                .Where(m => m.IsEnabled && m.TargetDevice == DeviceType.Arduino)
+                .Where(m => m.IsEnabled && m.TargetDevice == DeviceType.Arduino && m.Simulator == config.Simulator)
                 .GroupBy(m => m.ArduinoComPort)
                 .Select(g =>
                 {
@@ -127,22 +177,23 @@ namespace BmsLightBridge.Services
                 _icpService.Disconnect();
         }
 
-        public void Stop(AppConfiguration config)
+        public void Stop()
         {
             if (!IsSyncing) return;
 
-            _bmsReader.ChangeInterval(500);
+            _activeReader.ChangeInterval(500);
 
             _arduinoOutput.AllOff();
-            _winWingService.AllOff(config.Mappings);
+            _winWingService.AllOff(_activeConfig!.Mappings);
             _arduinoOutput.Disconnect();
 
             _icpService.Disconnect();
 
+            var heliosCfg = _activeConfig!.HeliosLaunch;
             IsSyncing     = false;
             _activeConfig = null;
 
-            TryShutdownHelios(config.HeliosLaunch);
+            TryShutdownHelios(heliosCfg);
 
             SyncStateChanged?.Invoke(this, false);
         }
@@ -157,38 +208,33 @@ namespace BmsLightBridge.Services
                 IcpConnectionChanged?.Invoke(this, connected));
         }
 
-        private void OnBmsConnectionChanged(object? sender, bool connected)
+        private void OnSimulatorConnectionChanged(object? sender, bool connected)
         {
-            _isBmsConnected = connected;
-            _icpService.SetBmsConnected(connected);
+            _icpService.SetSimulatorConnected(connected);
             System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
-                BmsConnectionChanged?.Invoke(this, connected));
+                SimulatorConnectionChanged?.Invoke(this, connected));
         }
 
-        private void OnLightsChanged(object? sender, LightsChangedEventArgs e)
+        private void OnStateChanged(object? sender, CockpitStateChangedEventArgs e)
         {
             if (e.RawBuffer.Length > 0)
                 _icpService.ProcessDedBuffer(e.RawBuffer);
 
-            if (!e.HasLightBitsChanged) return;
+            if (e.DedLines != null && e.DedFormat != null)
+                _icpService.ProcessDedLines(e.DedLines, e.DedFormat);
 
-            foreach (var light in BmsLights.All)
-            {
-                uint bits = light.BitField switch
-                {
-                    1 => e.LightBits,
-                    2 => e.LightBits2,
-                    3 => e.LightBits3,
-                    _ => 0
-                };
-                _currentLightStates[light.Name] = (bits & light.BitMask) != 0;
-            }
+            if (!e.HasChanged) return;
+
+            _currentLightStates.Clear();
+            foreach (var kvp in e.LightStates)
+                _currentLightStates[kvp.Key] = kvp.Value;
 
             var cfg = _activeConfig;
             if (IsSyncing && cfg != null)
             {
-                _arduinoOutput.ProcessMappings(cfg.Mappings, _currentLightStates);
-                _winWingService.ProcessMappings(cfg.Mappings, _currentLightStates);
+                var activeMappings = cfg.Mappings.Where(m => m.Simulator == cfg.Simulator).ToList();
+                _arduinoOutput.ProcessMappings(activeMappings, _currentLightStates);
+                _winWingService.ProcessMappings(activeMappings, _currentLightStates);
             }
 
             var snapshot = new Dictionary<string, bool>(_currentLightStates);
@@ -203,11 +249,11 @@ namespace BmsLightBridge.Services
         /// not already running. Silently ignores errors so that a misconfigured Helios path never
         /// prevents BmsLightBridge sync from starting.
         /// </summary>
-        private static void TryLaunchHelios(HeliosLaunchConfig cfg)
+        private static void TryLaunchHelios(HeliosLaunchConfig cfg, string profilePath)
         {
             if (!cfg.Enabled
                 || string.IsNullOrWhiteSpace(cfg.ControlCenterPath)
-                || string.IsNullOrWhiteSpace(cfg.ProfilePath))
+                || string.IsNullOrWhiteSpace(profilePath))
                 return;
 
             try
@@ -222,7 +268,7 @@ namespace BmsLightBridge.Services
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName        = cfg.ControlCenterPath,
-                    Arguments       = $"\"{cfg.ProfilePath}\"",
+                    Arguments       = $"\"{profilePath}\"",
                     UseShellExecute = true,
                     WindowStyle     = System.Diagnostics.ProcessWindowStyle.Minimized
                 });
@@ -260,15 +306,16 @@ namespace BmsLightBridge.Services
 
         public void FireTestOutput(AppConfiguration config, Dictionary<string, bool> testStates)
         {
-            _arduinoOutput.ProcessMappings(config.Mappings, testStates);
-            _winWingService.ProcessMappings(config.Mappings, testStates);
+            var activeMappings = config.Mappings.Where(m => m.Simulator == config.Simulator).ToList();
+            _arduinoOutput.ProcessMappings(activeMappings, testStates);
+            _winWingService.ProcessMappings(activeMappings, testStates);
         }
 
         // ── IDisposable ───────────────────────────────────────────────────
 
         public void Dispose()
         {
-            _bmsReader.Dispose();
+            _activeReader.Dispose();
             _arduinoOutput.Dispose();
             _winWingService.Dispose();
             _icpService.Dispose();

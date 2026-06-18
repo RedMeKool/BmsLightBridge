@@ -263,7 +263,7 @@ namespace BmsLightBridge.Services
                              && string.Equals(m.ArduinoComPort, state.ComPort, StringComparison.OrdinalIgnoreCase))
                     .ToList();
                 if (current.Count != active.Count ||
-                    current.Zip(active).Any(p => p.First.BmsSignalName != p.Second.BmsSignalName ||
+                    current.Zip(active).Any(p => p.First.SignalName != p.Second.SignalName ||
                                                   p.First.ArduinoPin    != p.Second.ArduinoPin))
                     needsRebuild = true;
             }
@@ -284,7 +284,7 @@ namespace BmsLightBridge.Services
 
             for (int i = 0; i < active.Count && i < modes.Length; i++)
             {
-                modes[i] = lightStates.TryGetValue(active[i].BmsSignalName, out bool isOn) && isOn;
+                modes[i] = lightStates.TryGetValue(active[i].SignalName, out bool isOn) && isOn;
                 if (modes[i] != state.LastMode[i]) changed = true;
             }
 

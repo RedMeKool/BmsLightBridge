@@ -32,7 +32,7 @@ namespace BmsLightBridge
             };
         }
 
-        private static void LogException(string source, Exception ex)
+        public static void LogException(string source, Exception ex)
         {
             try
             {
@@ -47,6 +47,20 @@ namespace BmsLightBridge
                                    : "") +
                                new string('-', 80) + "\n";
 
+                System.IO.File.AppendAllText(logPath, entry);
+            }
+            catch { /* logging must never crash the app */ }
+        }
+
+        /// <summary>Appends a plain diagnostic line to BmsLightBridge_errors.log (for non-exception events).</summary>
+        public static void LogMessage(string source, string message)
+        {
+            try
+            {
+                string logPath = System.IO.Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory, "BmsLightBridge_errors.log");
+
+                string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{source}] {message}\n";
                 System.IO.File.AppendAllText(logPath, entry);
             }
             catch { /* logging must never crash the app */ }

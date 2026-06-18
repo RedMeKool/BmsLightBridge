@@ -24,7 +24,7 @@ namespace BmsLightBridge.Services.Icp
         private IcpHidDevice?             _device;
         private readonly object           _lock       = new();
         private bool                      _isEnabled;
-        private bool                      _isBmsConnected;
+        private bool                      _isSimulatorConnected; // gates DED output; set for either simulator via SetSimulatorConnected
         private string[]                  _lastDed = Array.Empty<string>();
         private string[]                  _lastInv = Array.Empty<string>();
 
@@ -75,8 +75,8 @@ namespace BmsLightBridge.Services.Icp
 
         /// <summary>
         /// Disable DED output and blank the display.
-        /// Note: _isBmsConnected is intentionally NOT reset here — it is managed
-        /// exclusively by SetBmsConnected() so the state stays consistent when
+        /// Note: _isSimulatorConnected is intentionally NOT reset here — it is managed
+        /// exclusively by SetSimulatorConnected() so the state stays consistent when
         /// the user re-enables the toggle while BMS is still running.
         /// </summary>
         public void Disconnect()
@@ -91,11 +91,11 @@ namespace BmsLightBridge.Services.Icp
         }
 
         /// <summary>Called by SyncService when BMS connection state changes.</summary>
-        public void SetBmsConnected(bool connected)
+        public void SetSimulatorConnected(bool connected)
         {
             lock (_lock)
             {
-                _isBmsConnected = connected;
+                _isSimulatorConnected = connected;
                 if (!connected)
                 {
                     _lastDed = Array.Empty<string>();
@@ -142,12 +142,43 @@ namespace BmsLightBridge.Services.Icp
         {
             lock (_lock)
             {
-                if (!_isEnabled || !_isBmsConnected || _device == null) return;
+                if (!_isEnabled || !_isSimulatorConnected || _device == null) return;
 
                 try
                 {
                     var ded = ReadLines(raw, OFFSET_DED_LINES);
                     var inv = ReadInvertLines(raw, OFFSET_DED_INVERT);
+
+                    if (DedChanged(ded, inv))
+                    {
+                        _lastDed = ded;
+                        _lastInv = inv;
+                        SendFrame(ded, inv);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Called by SyncService with DED text/format lines from DcsBiosReader
+        /// (DCS-BIOS "DED Display (New)" DED_L1..DED_L5 / DED_Lx_FORMAT).
+        /// Converts the 'i'/'b' format markers to the inv-string format DedFont expects
+        /// (any non-space char in a column = inverted) — 'b' (big text) is not currently
+        /// rendered differently and is treated as normal text.
+        /// </summary>
+        public void ProcessDedLines(string[] dedLines, string[] formatLines)
+        {
+            lock (_lock)
+            {
+                if (!_isEnabled || !_isSimulatorConnected || _device == null) return;
+
+                try
+                {
+                    var ded = dedLines;
+                    var inv = formatLines
+                        .Select(f => new string(f.Select(c => c == 'i' ? 'I' : ' ').ToArray()))
+                        .ToArray();
 
                     if (DedChanged(ded, inv))
                     {
